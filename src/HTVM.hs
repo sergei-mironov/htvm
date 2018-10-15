@@ -1,8 +1,9 @@
 module HTVM (
-    module HTVM.Types
+    module HTVM.EDSL
   , module HTVM
   ) where
 
 
-import HTVM.Types
+import HTVM.EDSL
+import HTVM.IR
 

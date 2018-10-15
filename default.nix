@@ -1,5 +1,5 @@
-{ nixpkgs ? import <nixpkgs> {}
-, compiler ? "ghc822"
+{ nixpkgs ? import ../../../nixpkgs {}
+, compiler ? "ghc843"
 }:
 
 let
@@ -25,6 +25,7 @@ let
       tasty tasty-hunit tasty-quickcheck HUnit
       unordered-containers
       deriving-compat
+      haskdogs
     ];
     license = stdenv.lib.licenses.gpl3;
 
