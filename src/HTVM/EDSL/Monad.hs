@@ -32,42 +32,65 @@ stageExpr e = fst <$> runExprT e
 
 
 data StmtCtx = StmtCtx {
-    sc_expr :: Maybe (Tensor, TenExpr)
+    sc_namegen :: Integer
+  , sc_expr :: Maybe (Pattern, TenExpr)
   } deriving(Show)
 
-initStmtCtx = StmtCtx (TenError "undefined tensor")
+initStmtCtx = StmtCtx 0 Nothing
 
 newtype StmtT m a = StmtT { unStmtT :: StateT StmtCtx m a }
-  deriving(Functor,Applicative,Monad,MonadTrans)
+  deriving(Functor,Applicative,Monad,MonadTrans,MonadState StmtCtx)
 
 name :: (Monad m) => String -> m Name
 name = return . Name
+
+fresh :: (Monad m) => StmtT m Name
+fresh = StmtT $ state $ \s@StmtCtx{..} -> (Name $ "x" <> show sc_namegen, s{sc_namegen = sc_namegen+1})
+
 
 runStmtT :: (Monad m) => StmtT m TenExpr -> m (TenExpr,StmtCtx)
 runStmtT s = flip runStateT initStmtCtx $ unStmtT s
 
 stageStmt :: (Monad m) => StmtT m TenExpr -> m TenExpr
-stageStmt s = fst <$> runStmtT s
+stageStmt s = stage <$> runStmtT s where
+  stage (te,StmtCtx{..}) =
+    case sc_expr of
+      Nothing -> te
+      Just (pat0,te0) -> TenLet pat0 te0 te
 
 function :: (Monad m) => String -> [(String,Type,Shape)] -> ([TenExpr] -> StmtT m TenExpr) -> m Function
 function n plh_s fbody =
   Function <$> name n <*> pure plh <*> stageStmt (fbody (map TenPlh plh)) where
     plh = map (\(n,s,t) -> (Name n,s,t)) plh_s
 
--- | Compute a tensor by specifying explicit expression
+-- | Assigns expression a name
+assign :: (Monad m) => TenExpr -> StmtT m TenExpr
+assign te = do
+  p <- Pattern <$> fresh
+  modify $ (\s@StmtCtx{..} -> s{sc_expr = Just (p,
+    case sc_expr of
+      Nothing -> te
+      Just (pat0,te0) -> TenLet pat0 te0 te)})
+  return $ TenId p
+
+-- | Version of assign where the computation rule is specified for each
+-- Tensor's item
 compute :: (Monad m) => Shape -> ([Expr] -> Expr) -> StmtT m TenExpr
 compute shape ebody =
-  TenCompute <$> pure nullArgs{a_shape=Just shape} <*> pure (ebody localAxis)
-  where
+  let
     localAxis :: [Expr]
     localAxis = [EAxis $ LocalAxis (toInteger i) | i <- [0..length shape]]
+  in do
+  assign $ TenCompute nullArgs{a_shape=Just shape} (ebody localAxis)
 
 -- | Call a TOPI function
-topi :: (Monad m) => Name -> Args -> [TenExpr] -> StmtT m TenExpr
-topi nm attrs args = return $ TenCall nm attrs args
+-- topi :: (Monad m) => Name -> Args -> [TenExpr] -> StmtT m TenExpr
+-- topi nm attrs args = return $ TenCall nm attrs args
 
 
-call = undefined
+-- | Call a function
+call :: String -> Args -> [TenExpr] -> TenExpr
+call fname attrs args = TenCall (Name fname) attrs args
 
 -- class Sliceable a b c | a -> c where
 --   slice :: a -> b -> c

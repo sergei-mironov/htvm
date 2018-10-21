@@ -31,3 +31,8 @@ Haskell tools as usual:
     (nix-shell) $ cabal build
     (nix-shell) $ cabal repl htvm
 
+Log
+===
+
+#### 15.10.2018
+* Write this README.md

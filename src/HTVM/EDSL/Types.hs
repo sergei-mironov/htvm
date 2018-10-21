@@ -64,9 +64,9 @@ data Args = Args {
   , a_type :: Maybe Type
   } deriving(Show,Read,Ord,Eq)
 
-data Tensor = Tensor {
-    t_args :: Args
-  , t_expr :: Expr
+-- | Pattern is a name of Tensor Expression
+data Pattern = Pattern {
+    p_name :: Name
   } deriving(Show,Read,Ord,Eq)
 
 nullArgs :: Args
@@ -76,7 +76,11 @@ nullArgs = Args mempty mempty mempty
 -- `Tensor a,b; Tensor c = a + b;`
 data TenExpr =
     TenPlh Placeholder
-  | TenLet Tensor TenExpr TenExpr
+  -- ^ FIXME: Should it be one with TenId? Shape,Name,Type may be moved to
+  -- context out of the base AST
+  | TenId Pattern
+  -- ^ FIXME: Should it be united with TenPlh?
+  | TenLet Pattern TenExpr TenExpr
   | TenCompute Args Expr
   | TenBinOp TenExpr TenExpr
   | TenUnOp TenExpr TenExpr
