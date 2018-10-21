@@ -34,5 +34,11 @@ Haskell tools as usual:
 Log
 ===
 
+#### 22.10.2018
+* Started to implement Printer
+
+#### 17.10.2018
+* Demo exposes DSL which compiles somehow
+
 #### 15.10.2018
 * Write this README.md

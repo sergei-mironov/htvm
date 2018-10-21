@@ -10,6 +10,7 @@ module HTVM.EDSL.Monad where
 import Control.Applicative
 import Control.Monad
 import Control.Monad.State
+import Control.Monad.Trans
 import Data.Maybe (fromMaybe,fromJust)
 
 import HTVM.EDSL.Types
@@ -39,7 +40,7 @@ data StmtCtx = StmtCtx {
 initStmtCtx = StmtCtx 0 Nothing
 
 newtype StmtT m a = StmtT { unStmtT :: StateT StmtCtx m a }
-  deriving(Functor,Applicative,Monad,MonadTrans,MonadState StmtCtx)
+  deriving(Functor,Applicative,Monad,MonadTrans,MonadState StmtCtx,MonadIO)
 
 name :: (Monad m) => String -> m Name
 name = return . Name
@@ -75,44 +76,19 @@ assign te = do
 
 -- | Version of assign where the computation rule is specified for each
 -- Tensor's item
-compute :: (Monad m) => Shape -> ([Expr] -> Expr) -> StmtT m TenExpr
+compute :: (MonadIO m) => Shape -> ([Expr] -> Expr) -> StmtT m TenExpr
 compute shape ebody =
   let
     localAxis :: [Expr]
-    localAxis = [EAxis $ LocalAxis (toInteger i) | i <- [0..length shape]]
+    localAxis = [EAxis $ LocalAxis (toInteger i) | i <- [1..length shape]]
   in do
+  liftIO $ putStrLn $ show localAxis
   assign $ TenCompute nullArgs{a_shape=Just shape} (ebody localAxis)
-
--- | Call a TOPI function
--- topi :: (Monad m) => Name -> Args -> [TenExpr] -> StmtT m TenExpr
--- topi nm attrs args = return $ TenCall nm attrs args
-
 
 -- | Call a function
 call :: String -> Args -> [TenExpr] -> TenExpr
 call fname attrs args = TenCall (Name fname) attrs args
 
--- class Sliceable a b c | a -> c where
---   slice :: a -> b -> c
-
--- (!) :: Sliceable a b c => a -> b -> c
--- (!) a b = slice a b
--- infix 9 !
-
 (!) :: TenExpr -> [Expr] -> Expr
 (!) t sl = ESlice t sl
-
--- class Addable a where
---   add :: a -> a -> a
-
--- (.+) :: (Addable a) => a -> a -> a
--- (.+) a b = add a b
--- infix 1 .+
-
--- class Multipliable a where
---   multiply :: a -> a -> a
-
--- (.*) :: (Multipliable a) => a -> a -> a
--- (.*) a b = multiply a b
--- infix 2 .*
 

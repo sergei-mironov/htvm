@@ -3,7 +3,7 @@ module HTVM.EDSL.Types where
 
 import Data.Monoid
 
-newtype Name = Name String
+newtype Name = Name { n_get :: String }
   deriving(Show,Read,Ord,Eq,Semigroup,Monoid)
 
 data Axis =
@@ -82,8 +82,8 @@ data TenExpr =
   -- ^ FIXME: Should it be united with TenPlh?
   | TenLet Pattern TenExpr TenExpr
   | TenCompute Args Expr
-  | TenBinOp TenExpr TenExpr
-  | TenUnOp TenExpr TenExpr
+  -- | TenBinOp TenExpr TenExpr
+  -- | TenUnOp TenExpr TenExpr
   | TenCall { tc_fname::Name, tc_attrs::Args, tc_args::[TenExpr] }
     -- ^ Function call. `tc_fname` is the name of a function. `tc_attrs` is
     -- common non-Tensor arguments to this function. `tc_args` is the Tensor
