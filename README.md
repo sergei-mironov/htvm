@@ -1,6 +1,8 @@
 HTVM
 ====
 
+*Under construction*
+
 This project is an experimental Haskell binding fot [TVM](https://tvm.ai)
 Machine Learning framework. The project is under development at the moment.
 
