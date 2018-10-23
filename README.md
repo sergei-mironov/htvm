@@ -36,6 +36,9 @@ Haskell tools as usual:
 Log
 ===
 
+#### 24.10.2018
+* Printer compiles
+
 #### 22.10.2018
 * Started to implement Printer
 

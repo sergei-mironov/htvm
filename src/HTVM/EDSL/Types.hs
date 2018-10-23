@@ -29,16 +29,16 @@ data Expr =
   -- ^ Shape variable, unknown at compile time
   | EAxis Axis
   -- ^ Axis placeholder to be used inside the `compute` operator
-  | EBinOp Name Expr Expr
-  | EUnOp Name Expr
+  | ECall Name [Expr]
+  -- ^ Call of a function or an operator
   | ESlice TenExpr [Expr]
   deriving(Show,Read,Ord,Eq)
 
 instance Num Expr where
-  (+) = EBinOp (Name "+")
-  (-) = EBinOp (Name "-")
-  (*) = EBinOp (Name "*")
-  negate = EUnOp (Name "-")
+  (+) a b = ECall (Name "+") [a,b]
+  (-) a b = ECall (Name "-") [a,b]
+  (*) a b = ECall (Name "*") [a,b]
+  negate a = ECall (Name "-") [a]
   abs = error "abs is undefined"
   signum = error "signum is undefined"
   fromInteger = EConst . CInt
@@ -92,6 +92,9 @@ data TenExpr =
 
 
 type Placeholder = (Name,Type,Shape)
+
+pls_name :: Placeholder -> Name
+pls_name (nm,_,_) = nm
 
 data Function = Function {
     fun_name :: Name
