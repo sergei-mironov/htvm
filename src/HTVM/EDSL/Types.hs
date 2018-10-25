@@ -85,9 +85,9 @@ data TenExpr =
   -- | TenBinOp TenExpr TenExpr
   -- | TenUnOp TenExpr TenExpr
   | TenCall { tc_fname::Name, tc_attrs::Args, tc_args::[TenExpr] }
-    -- ^ Function call. `tc_fname` is the name of a function. `tc_attrs` is
-    -- common non-Tensor arguments to this function. `tc_args` is the Tensor
-    -- arguments.
+  -- ^ Function call. `tc_fname` is the name of a function. `tc_attrs` is
+  -- common non-Tensor arguments to this function. `tc_args` is the Tensor
+  -- arguments.
   deriving(Show,Read,Ord,Eq)
 
 

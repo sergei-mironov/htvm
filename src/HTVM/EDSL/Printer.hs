@@ -19,13 +19,17 @@ tpack :: String -> Text
 tpack = Text.pack
 
 
+
 printExpr :: Expr -> Text
 printExpr e =
   let
     go = printExpr
   in
   case e of
-    EConst c -> tshow c
+    EConst c ->
+      case c of
+        CInt i -> tshow i
+        CFloat32 f -> tshow f
     EShapeVar sh -> printShapeVar sh
     EAxis a -> printAxis a
     ECall nm es

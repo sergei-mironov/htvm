@@ -36,6 +36,9 @@ Haskell tools as usual:
 Log
 ===
 
+#### 25.10.2018
+* Fix assign error. Drop show instance for StmtCtx, unfortunately.
+
 #### 24.10.2018
 * Printer compiles
 

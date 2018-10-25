@@ -34,10 +34,10 @@ stageExpr e = fst <$> runExprT e
 
 data StmtCtx = StmtCtx {
     sc_namegen :: Integer
-  , sc_expr :: Maybe (Pattern, TenExpr)
-  } deriving(Show)
+  , sc_expr :: TenExpr -> TenExpr
+  }
 
-initStmtCtx = StmtCtx 0 Nothing
+initStmtCtx = StmtCtx 0 id
 
 newtype StmtT m a = StmtT { unStmtT :: StateT StmtCtx m a }
   deriving(Functor,Applicative,Monad,MonadTrans,MonadState StmtCtx,MonadIO)
@@ -54,10 +54,7 @@ runStmtT s = flip runStateT initStmtCtx $ unStmtT s
 
 stageStmt :: (Monad m) => StmtT m TenExpr -> m TenExpr
 stageStmt s = stage <$> runStmtT s where
-  stage (te,StmtCtx{..}) =
-    case sc_expr of
-      Nothing -> te
-      Just (pat0,te0) -> TenLet pat0 te0 te
+  stage (te,StmtCtx{..}) = sc_expr te
 
 function :: (Monad m) => String -> [(String,Type,Shape)] -> ([TenExpr] -> StmtT m TenExpr) -> m Function
 function n plh_s fbody =
@@ -66,12 +63,9 @@ function n plh_s fbody =
 
 -- | Assigns expression a name
 assign :: (Monad m) => TenExpr -> StmtT m TenExpr
-assign te = do
+assign te0 = do
   p <- Pattern <$> fresh
-  modify $ (\s@StmtCtx{..} -> s{sc_expr = Just (p,
-    case sc_expr of
-      Nothing -> te
-      Just (pat0,te0) -> TenLet pat0 te0 te)})
+  modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet p te0 te)}
   return $ TenId p
 
 -- | Version of assign where the computation rule is specified for each
@@ -82,7 +76,6 @@ compute shape ebody =
     localAxis :: [Expr]
     localAxis = [EAxis $ LocalAxis (toInteger i) | i <- [1..length shape]]
   in do
-  liftIO $ putStrLn $ show localAxis
   assign $ TenCompute nullArgs{a_shape=Just shape} (ebody localAxis)
 
 -- | Call a function
