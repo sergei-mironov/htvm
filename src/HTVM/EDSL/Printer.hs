@@ -9,16 +9,29 @@ import Control.Monad.Writer(MonadWriter,Writer,tell,execWriter)
 import Data.Monoid((<>))
 import Data.Maybe(fromJust)
 import Data.Text(Text)
+
+import HTVM.Prelude
 import HTVM.EDSL.Types
 
+printDimExpr :: DimExpr -> Text
+printDimExpr se =
+  let
+    go = printDimExpr
+  in
+  case se of
+    DimConst i -> tshow i
+    DimId p -> printPattern p
+    DimCall nm es
+      | isOpName nm && length es == 2 -> go (es!!0) <> printName nm <> go (es!!1)
+      | isOpName nm && length es == 1 -> printName nm <> go (es!!0)
+      | otherwise -> printName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
 
-tshow :: (Show a) => a -> Text
-tshow = Text.pack . show
-
-tpack :: String -> Text
-tpack = Text.pack
-
-
+printShapeExpr :: ShapeExpr -> Text
+printShapeExpr se =
+  case se of
+    ShapeId _ n -> printName n
+    ShapeConst ds -> "{" <> Text.intercalate ", " (map printDimExpr ds) <> "}"
+    -- ShapeSlice se ds -> printShapeExpr se <> "[" <> Text.intercalate ", " (map printDimExpr ds) <> "]"
 
 printExpr :: Expr -> Text
 printExpr e =
@@ -30,29 +43,23 @@ printExpr e =
       case c of
         CInt i -> tshow i
         CFloat32 f -> tshow f
-    EShapeVar sh -> printShapeVar sh
-    EAxis a -> printAxis a
     ECall nm es
       | isOpName nm && length es == 2 -> go (es!!0) <> printName nm <> go (es!!1)
-      | isOpName nm && length es == 1 -> printName nm <> printExpr (es!!0)
+      | isOpName nm && length es == 1 -> printName nm <> go (es!!0)
       | otherwise -> printName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
-    ESlice te es -> printTenExpr te <> "[" <> Text.intercalate "," (map go es) <> "]"
-
-printAxis :: Axis -> Text
-printAxis (GlobalAxis nm) = printName nm
-printAxis (LocalAxis i) = tshow i
-
-printShapeVar :: ShapeVar -> Text
-printShapeVar (ShapeVar nm) = printName nm
-
-printShape :: Shape -> Text
-printShape es = "{" <> Text.intercalate ", " (map printExpr es) <> "}"
+    ESlice te es -> printTenExpr te <> "[" <> Text.intercalate "," (map printDimExpr es) <> "]"
 
 printName :: Name -> Text
-printName (Name n) = Text.pack n
+printName (Name n) = n -- TODO: escape to make C-compatible
 
 isOpName :: Name -> Bool
-isOpName (Name n) = (tpack n)`Text.isInfixOf`"+-*/"
+isOpName (Name n) = n`Text.isInfixOf`"+-*/"
+
+-- printShape :: ShapeExpr -> Text
+-- printShape es = "{" <> Text.intercalate ", " (map printShapeExpr es) <> "}"
+
+printPattern :: Pattern -> Text
+printPattern (Pattern n) = printName n
 
 printTenExpr :: TenExpr -> Text
 printTenExpr te =
@@ -61,9 +68,24 @@ printTenExpr te =
   in
   case te of
     TenPlh (n,_,_) -> printName n
-    TenId pat -> printName (p_name pat)
-    TenLet pat e1 e2 -> printName (p_name pat) <> " = " <> go e1 <> ";" <> go e2
-    TenCompute Args{..} e -> "compute(" <> printShape (fromJust a_shape) <> ", [=](i) {" <> printExpr e <> "})"
+    TenId pat -> printPattern pat
+    TenLet pat e1@(TenLet _ _ _) e2 -> printName (p_name pat) <> " = ({" <> go e1 <> "; });\n" <> go e2
+    TenLet pat e1 e2 -> printName (p_name pat) <> " = " <> go e1 <> ";\n" <> go e2
+    TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
+    TenDim s -> printDimExpr s
+    TenCompute sh p e -> "compute(" <> printShapeExpr sh <> ", [=](" <> printPattern p <> ") {" <> printExpr e <> "})"
+    TenDef n te ->
+      execWriter $ do
+        line $ "({"
+        line $ "tvm::BuildConfig config = tvm::build_config();"
+        line $ "auto args = ({" <> go te <>  "; });"
+        line $ "tvm::Schedule s = tvm::create_schedule({args[args.size()-1]->op});"
+        line $ "std::unordered_map<tvm::Tensor, tvm::Buffer> binds;"
+        line $ "auto f = tvm::Array<tvm::Tensor>(args);"
+        line $ "auto lowered = tvm::lower(s, f, " <> printName n <> ", binds, config);"
+        line $ "lowered[0];"
+        line $ ")}"
+
     TenCall nm Args{..} es
       | isOpName nm && (length es == 2) -> go (es!!0) <> printName nm <> go (es!!1)
       | isOpName nm && (length es == 1) -> printName nm <> go (es!!0)
@@ -72,26 +94,15 @@ printTenExpr te =
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")
 
-printFunction :: Function -> Text
-printFunction Function{..} =
+printLibrary :: Library -> Text
+printLibrary (Library te) =
   execWriter $ do
     line $ "({"
-    line $ "tvm::Tensor C = ({"<> printTenExpr fun_body <>"});"
-    line $ "tvm::Schedule s = tvm::create_schedule({C->op});"
-    line $ "auto args = tvm::Array<tvm::Tensor>({" <> Text.intercalate "," (map (printName . pls_name) fun_pls) <> "});"
-    line $ "auto lowered = tvm::lower(s, args, " <> printName fun_name <> ", binds, config);"
-    line $ "lowered;"
-    line $ ")}"
-
-printModule :: Module -> Text
-printModule (Module nm [f]) = -- FIXME: support more than 1 func
-  execWriter $ do
-    line $ "({"
-    line $ "auto lowered = "<> printFunction f <> ";"
+    line $ "auto funcs = ({" <> printTenExpr te <> "; });"
     line $ "tvm::BuildConfig config = tvm::build_config();"
     line $ "auto target = tvm::Target::create(\"llvm\"); "
     line $ "auto target_host = tvm::Target::create(\"llvm\");"
-    line $ "tvm::runtime::Module mod = tvm::build(lowered, target, target_host, config);"
+    line $ "tvm::runtime::Module mod = tvm::build(funcs, target, target_host, config);"
     line $ "mod;"
     line $ "})"
 
