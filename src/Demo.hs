@@ -2,14 +2,10 @@
 
 module Demo where
 
-import qualified Data.Text.IO as Text
-
 import Control.Monad.Trans
 
 import HTVM.Prelude
 import HTVM
-
-tputStrLn = Text.putStrLn
 
 main :: IO ()
 main = do
@@ -38,9 +34,9 @@ demo3 :: IO TenExpr
 demo3 = do
   stageStmt $ do
     d <- dimvar
-    s <- shapevar [d]
+    s <- shapevar [d,10]
     f <- function "vecadd" [("A",float32,s)] $ \[a] -> do
-      compute s $ \[i] -> a![i]
+      compute s $ \[i,j] -> a![i,10]
     return $ unFunction f
 
 
@@ -73,6 +69,6 @@ demo3 = do
 --         return c
 --     ]
 
-putLib m = tputStrLn =<< printLibrary <$> m
+putLib m = tputStrLn =<< pretty =<< printLibrary <$> m
 
-putTenExpr te = tputStrLn =<< printTenExpr <$> te
+putTenExpr te = tputStrLn =<< pretty =<< printTenExpr <$> te

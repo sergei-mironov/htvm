@@ -19,14 +19,22 @@ let
     isExecutable = true;
     libraryHaskellDepends = with haskellPackages; [
       cabal-install ghc zlib haskdogs hasktags
-      recursion-schemes Earley
+      recursion-schemes
+      Earley
       containers
-      parsec pretty-show
-      tasty tasty-hunit tasty-quickcheck HUnit
+      parsec
+      pretty-show
+      tasty
+      tasty-hunit
+      tasty-quickcheck
+      HUnit
       unordered-containers
       deriving-compat
       haskdogs
     ];
+
+    executableToolDepends = [ pkgs.clang_6 ];
+
     license = stdenv.lib.licenses.gpl3;
 
     shellHook = ''

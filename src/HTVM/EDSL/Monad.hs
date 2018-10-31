@@ -15,6 +15,7 @@ import Control.Monad.State
 import Control.Monad.Trans
 import Data.Maybe (fromMaybe,fromJust)
 import Data.Text (Text)
+import System.Process (readCreateProcess,shell)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
@@ -155,4 +156,8 @@ instance Sliceable ShapeExpr Integer Expr where
   (!) :: ShapeExpr -> Integer -> Expr
   (!) t sl = EShapeSlice t sl
 
+
+
+pretty :: Text -> IO Text
+pretty t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 
