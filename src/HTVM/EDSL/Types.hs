@@ -5,7 +5,7 @@ module HTVM.EDSL.Types where
 import Data.Monoid
 import Data.Text(Text)
 
--- | Name is the string convertable to valid C identifier
+-- | Name is the string convertable to valid C/C++ identifier
 newtype Name = Name { n_get :: Text }
   deriving(Show,Read,Ord,Eq,Semigroup,Monoid)
 
@@ -15,10 +15,10 @@ data Const =
   deriving(Show,Read,Ord,Eq)
 
 -- | Dimention expression represents the length of the vectors, number of
--- rows/columns in a matrix, etc.
+-- rows/columns in a matrix, etc. Converts to `tvm::Var`.
 data DimExpr =
     DimConst Integer
-  | DimId Pattern
+  | DimId Name
   | DimCall Name [DimExpr]
   deriving(Show,Read,Ord,Eq)
 
@@ -31,28 +31,54 @@ instance Num DimExpr where
   signum = error "signum is undefined for DimExpr"
   fromInteger = DimConst
 
--- | Shape expressions represents the shape of a tensor, i.e. the number and
--- size of its dimentions.
-data ShapeExpr =
-    ShapeId Integer Name
-  -- ^ Shape id stores the number of dimentions which we should always know at
-  -- compile time
-  | ShapeConst [Integer]
-  | ShapeSum [ShapeExpr]
+-- | Axis represents iterator running through the range supplied. Equivalent of
+-- `tvm::IterVar`.
+data Axis = Axis Name (DimExpr,DimExpr)
   deriving(Show,Read,Ord,Eq)
 
-shapeNDim :: ShapeExpr -> Integer
-shapeNDim (ShapeId x _) = x
-shapeNDim (ShapeConst x) = toInteger $ length x
+-- | Shape expressions represents the shape of a tensor, i.e. the number and
+-- size of its dimentions. Rough equivalent of `tvm::Array<Expr>`.
+data ShapeExpr =
+    ShapeId Integer Name     -- ^ Shape id stores the number of dimentions which we should always know at
+                             --   compile time
+  | ShapeVector DimExpr      -- ^ Vector has 1 dimention of some length.
+  | ShapeScalar              -- ^ Scalar has 0 dimentions.
+  | ShapeSum ShapeExpr ShapeExpr
+                             -- ^ Concatenation on shapes
+  deriving(Show,Read,Ord,Eq)
+
+-- | Return the number of dimentions of ShapeExpr which is always known at compile time.
+shapeDim :: ShapeExpr -> Integer
+shapeDim (ShapeId ndim _) = ndim
+shapeDim (ShapeVector _) = 1
+shapeDim (ShapeScalar) = 0
+shapeDim (ShapeSum se1 se2) = shapeDim se1 + shapeDim se2
+
+instance Semigroup ShapeExpr where
+  (<>) a b = ShapeSum a b
+
+-- | Convert ShapeExpr in flattern form, where each list itme represents a
+-- dimention, either of known size or unknown at compile time. Empty list
+-- represents a shape of scalar.
+-- FIXME: This function is impossible
+-- shapeFlattern :: ShapeExpr -> [Either DimExpr Integer]
+-- shapeFlattern sh =
+--   case sh of
+--     ShapeId 1 n -> [Left n]
+--     ShapeId x n -> error "shapeFlattern: don't know how to represent multidimentional shape variables"
+--     ShapeVector x -> [Right x]
+--     ShapeScalar -> []
+--     ShapeSum a b -> shapeFlattern a <> shapeFlattern b
 
 -- | Scalar expressions
 data Expr =
-    EConst Const
-  -- ^ Plain constant
-  | ECall Name [Expr]
-  -- ^ Call of a function or an operator
-  | ESlice TenExpr [DimExpr]
-  -- ^ Accessing an individual element of a tensor
+    EConst Const             -- ^ A constant
+  | EId Name                 -- ^ A variable
+  | EShapeSlice ShapeExpr Integer
+                             -- ^ ShapeExpr is an Expression
+  | ETenSlice TenExpr [Expr] -- ^ Accessing an individual element of a tensor
+  | ECall Name [Expr]        -- ^ Call of a function or an operator
+  | ETuple [Expr]            -- ^ A tuple of expressions
   deriving(Show,Read,Ord,Eq)
 
 instance Num Expr where
@@ -90,28 +116,30 @@ data Pattern = Pattern {
 -- | Tensor Expressions. Allow us to write code like
 -- `Tensor a,b; Tensor c = a + b;`
 data TenExpr =
-    TenPlh Placeholder
-  -- ^ Placeholder is a tensor, which are to be supplied in runtime
-  | TenId Pattern
-  -- ^ Pattern is the target of assignment
+    TenPlh Placeholder                  -- ^ Placeholder is a tensor, which are
+                                        --   to be supplied in runtime
+  | TenId Name
   | TenLet Pattern TenExpr TenExpr
   | TenTuple [TenExpr]
   | TenDim DimExpr
   | TenShape ShapeExpr
+  | TenAxis Axis
   | TenCompute ShapeExpr Pattern Expr
-  | TenDef Name TenExpr
-  -- ^ FIXME: TenDef would be redundant in the presence of typechecker.
+  | TenDef Name TenExpr                 -- ^ FIXME: TenDef would be redundant
+                                        --   in the presence of typechecker.
   | TenCall { tc_fname::Name, tc_attrs::Args, tc_args::[TenExpr] }
-  -- ^ Function call. `tc_fname` is the name of a function. `tc_attrs` is
-  -- common non-Tensor arguments to this function. `tc_args` is the Tensor
-  -- arguments.
+                                        -- ^ Function call. `tc_fname` is the
+                                        --   name of a function. `tc_attrs` is
+                                        --   common non-Tensor arguments to this
+                                        --   function. `tc_args` is the Tensor
+                                        --   arguments.
   deriving(Show,Read,Ord,Eq)
 
 
-type Placeholder = (Name,Type,ShapeExpr)
+type Placeholder = (Text,Type,ShapeExpr)
 
-pls_name :: Placeholder -> Name
-pls_name (nm,_,_) = nm
+-- pls_name :: Placeholder -> Name
+-- pls_name (nm,_,_) = nm
 
 newtype Function = Function { unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)

@@ -20,7 +20,7 @@ printDimExpr se =
   in
   case se of
     DimConst i -> tshow i
-    DimId p -> printPattern p
+    DimId n -> printName n
     DimCall nm es
       | isOpName nm && length es == 2 -> go (es!!0) <> printName nm <> go (es!!1)
       | isOpName nm && length es == 1 -> printName nm <> go (es!!0)
@@ -29,9 +29,10 @@ printDimExpr se =
 printShapeExpr :: ShapeExpr -> Text
 printShapeExpr se =
   case se of
-    ShapeId _ n -> printName n
-    ShapeConst ds -> "{" <> Text.intercalate ", " (map printDimExpr ds) <> "}"
-    -- ShapeSlice se ds -> printShapeExpr se <> "[" <> Text.intercalate ", " (map printDimExpr ds) <> "]"
+    ShapeId _ nm -> printName nm
+    ShapeVector de -> "{" <> printDimExpr de <> "}"
+    ShapeScalar -> "{}"
+    ShapeSum se1 se2 -> printShapeExpr se1 <> "+" <> printShapeExpr se2
 
 printExpr :: Expr -> Text
 printExpr e =
@@ -39,6 +40,7 @@ printExpr e =
     go = printExpr
   in
   case e of
+    EId n -> printName n
     EConst c ->
       case c of
         CInt i -> tshow i
@@ -47,16 +49,15 @@ printExpr e =
       | isOpName nm && length es == 2 -> go (es!!0) <> printName nm <> go (es!!1)
       | isOpName nm && length es == 1 -> printName nm <> go (es!!0)
       | otherwise -> printName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
-    ESlice te es -> printTenExpr te <> "[" <> Text.intercalate "," (map printDimExpr es) <> "]"
+    ETenSlice te es -> printTenExpr te <> "[" <> Text.intercalate "," (map go es) <> "]"
+    EShapeSlice se sl -> printShapeExpr se <> "[" <> tshow sl <> "]"
+    ETuple es -> "{" <> Text.intercalate "," (map go es) <> "}"
 
 printName :: Name -> Text
 printName (Name n) = n -- TODO: escape to make C-compatible
 
 isOpName :: Name -> Bool
 isOpName (Name n) = n`Text.isInfixOf`"+-*/"
-
--- printShape :: ShapeExpr -> Text
--- printShape es = "{" <> Text.intercalate ", " (map printShapeExpr es) <> "}"
 
 printPattern :: Pattern -> Text
 printPattern (Pattern n) = printName n
@@ -67,13 +68,14 @@ printTenExpr te =
     go = printTenExpr
   in
   case te of
-    TenPlh (n,_,_) -> printName n
-    TenId pat -> printPattern pat
-    TenLet pat e1@(TenLet _ _ _) e2 -> printName (p_name pat) <> " = ({" <> go e1 <> "; });\n" <> go e2
-    TenLet pat e1 e2 -> printName (p_name pat) <> " = " <> go e1 <> ";\n" <> go e2
+    TenPlh (n,_,_) -> "tvm::placeholder(name=\""<>n<>"\")"
+    TenId n -> printName n
+    TenLet pat e1@(TenLet _ _ _) e2 -> "auto " <> printName (p_name pat) <> " = ({" <> go e1 <> "; });\n" <> go e2
+    TenLet pat e1 e2 -> "auto " <> printName (p_name pat) <> " = " <> go e1 <> ";\n" <> go e2
     TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
     TenDim s -> printDimExpr s
-    TenCompute sh p e -> "compute(" <> printShapeExpr sh <> ", [=](" <> printPattern p <> ") {" <> printExpr e <> "})"
+    TenShape s -> printShapeExpr s
+    TenCompute sh p e -> "tvm::compute(" <> printShapeExpr sh <> ", [=](" <> printPattern p <> ") {" <> printExpr e <> "})"
     TenDef n te ->
       execWriter $ do
         line $ "({"

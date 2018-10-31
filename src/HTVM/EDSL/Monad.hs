@@ -2,7 +2,9 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE InstanceSigs #-}
 module HTVM.EDSL.Monad where
 
 import qualified Data.Text as Text
@@ -51,6 +53,7 @@ fresh' pref suff = StmtT $ state $ \s@StmtCtx{..} -> (Name $ wrap pref <> tshow 
   where
     wrap x = if x == "" then x else x <> "_"
 
+-- | Generate new preffixed and suffixed names
 freshP,freshS :: (Monad m) => Text -> StmtT m Name
 freshP p = fresh' p ""
 freshS s = fresh' "" s
@@ -77,58 +80,79 @@ stageLibrary :: (Monad m) => StmtT m Library -> m Library
 stageLibrary s = stage <$> runStmtT initStmtCtx s where
   stage (Library te,StmtCtx{..}) = Library $ sc_expr te
 
-assign'' :: (Monad m) => Pattern -> a -> Text -> (a -> TenExpr) -> (Pattern -> a) -> StmtT m a
-assign'' p a prefix ctr ctrP = do
-  modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet p (ctr a) te)}
-  return $ ctrP p
+-- assign'' :: (Monad m) => Pattern -> a -> Text -> (a -> TenExpr) -> (Pattern -> a) -> StmtT m a
+-- assign'' p a prefix ctr ctrP = do
+--   modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet p (ctr a) te)}
+--   return $ ctrP p
 
-assign' :: (Monad m) => a -> Text -> (a -> TenExpr) -> (Pattern -> a) -> StmtT m a
-assign' a prefix ctr ctrP = do
-  p <- Pattern <$> freshP prefix
-  assign'' p a prefix ctr ctrP
+-- assign' :: (Monad m) => a -> Text -> (a -> TenExpr) -> (Pattern -> a) -> StmtT m Name
+-- assign' a prefix ctr ctrP = do
+--   p <- Pattern <$> freshP prefix
+--   assign'' p a prefix ctr ctrP
 
-assignN :: (Monad m) => Text -> TenExpr -> StmtT m TenExpr
-assignN n te = do
-  assign'' (Pattern $ Name n) te n id TenId
+-- assignN :: (Monad m) => Name -> TenExpr -> StmtT m ()
+-- assignN n te1 = do
+
+assign_ :: (Monad m) => Name -> TenExpr -> StmtT m ()
+assign_ n te1 = do
+  modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet (Pattern n) te1 te)}
+
+assignN :: (Monad m) => Text -> TenExpr -> StmtT m Name
+assignN prefix te1 = do
+  n <- freshP prefix
+  assign_ n te1
+  return n
 
 assign :: (Monad m) => TenExpr -> StmtT m TenExpr
-assign te = assign' te "tensor" id TenId
+assign te = TenId <$> assignN "asgn" te
 
-function :: (Monad m) => Text -> [(Text,Type,ShapeExpr)] -> ([TenExpr] -> StmtT m TenExpr) -> StmtT m Function
-function n plh_s fbody = do
+function :: (Monad m) => Text -> [Placeholder] -> ([TenExpr] -> StmtT m TenExpr) -> StmtT m Function
+function n plh fbody = do
   Function <$> do
-    assignN n =<< do
+    (\x -> assign_ (Name n) x >> pure (TenId (Name n))) =<< do
       scope $ do
-        plhs <- forM plh_s $ (\(n,s,t) -> assign $ TenPlh (Name n,s,t))
+        plhs <- map TenId <$> (forM plh $ assignN "plh" . TenPlh)
         res <- fbody plhs
         modify $ \s -> s{sc_expr = \te -> TenDef (Name n) ((sc_expr s) te)}
         return $ TenTuple (plhs <> [res])
 
 -- | Version of assign where the computation rule is specified for each
 -- Tensor's item
-compute :: (MonadIO m) => ShapeExpr -> ([DimExpr] -> Expr) -> StmtT m TenExpr
-compute shape ebody = do
-  p <- Pattern <$> freshP "cpt"
-  vars <- map DimId <$> map Pattern <$> mapM (const $ freshP "pat") [1..shapeNDim shape]
-  assign $ TenCompute shape p (ebody vars)
+compute :: (MonadIO m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m TenExpr
+compute se ebody = do
+  nm <- freshP "cpt"
+  dims <- pure $ map (EShapeSlice (ShapeId (shapeDim se) nm)) [1..shapeDim se]
+  assign_ nm (TenCompute se (Pattern nm) (ebody dims))
+  return (TenId nm)
 
 -- | Call a function
 call :: Text -> Args -> [TenExpr] -> TenExpr
 call fname attrs args = TenCall (Name fname) attrs args
 
-(!) :: TenExpr -> [DimExpr] -> Expr
-(!) t sl = ESlice t sl
+dimvar :: (Monad m) => StmtT m DimExpr
+dimvar = do
+  n <- assignN "var" (TenDim (DimCall (Name "tvm::var") []))
+  return (DimId n)
 
-dim :: (Monad m) => StmtT m DimExpr
-dim = do
-  s <- DimId <$> Pattern <$> freshP "shapevar"
-  assign' s "shapevar" TenDim DimId
-  return s
-
-shape :: (Monad m) => [DimExpr] -> StmtT m ShapeExpr
-shape = return . ShapeConst
+shapevar :: (Monad m) => [DimExpr] -> StmtT m ShapeExpr
+shapevar de = do
+  n <- assignN "shape" (TenShape (foldr1 ShapeSum (map ShapeVector de)))
+  return (ShapeId (toInteger $ length de) n)
 
 library :: (Monad m) => [Function] -> StmtT m Library
 library fns = do
   return $ Library $ TenTuple (map unFunction fns)
+
+
+class Sliceable a b c | a->c, b->c where
+  (!) :: a -> b -> c
+
+instance Sliceable TenExpr [Expr] Expr where
+  (!) :: TenExpr -> [Expr] -> Expr
+  (!) t sl = ETenSlice t sl
+
+instance Sliceable ShapeExpr Integer Expr where
+  (!) :: ShapeExpr -> Integer -> Expr
+  (!) t sl = EShapeSlice t sl
+
 
