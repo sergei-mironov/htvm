@@ -49,7 +49,7 @@ printExpr e =
       | isOpName nm && length es == 2 -> go (es!!0) <> printName nm <> go (es!!1)
       | isOpName nm && length es == 1 -> printName nm <> go (es!!0)
       | otherwise -> printName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
-    ETenSlice te es -> printTenExpr te <> "[" <> Text.intercalate "," (map go es) <> "]"
+    ETenSlice te es -> printTenExpr te <> "(" <> Text.intercalate "," (map go es) <> ")"
     EShapeSlice se sl -> printShapeExpr se <> "[" <> tshow sl <> "]"
     ETuple es -> "{" <> Text.intercalate "," (map go es) <> "}"
 
@@ -75,7 +75,7 @@ printTenExpr te =
     TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
     TenDim s -> printDimExpr s
     TenShape s -> printShapeExpr s
-    TenCompute sh p e -> "tvm::compute(" <> printShapeExpr sh <> ", [=](" <> printPattern p <> ") {" <> printExpr e <> "})"
+    TenCompute sh p e -> "tvm::compute(" <> printShapeExpr sh <> ", [=](" <> printPattern p <> ") { return " <> printExpr e <> "; })"
     TenDef n te ->
       execWriter $ do
         line $ "({"
@@ -86,7 +86,7 @@ printTenExpr te =
         line $ "auto f = tvm::Array<tvm::Tensor>(args);"
         line $ "auto lowered = tvm::lower(s, f, " <> printName n <> ", binds, config);"
         line $ "lowered[0];"
-        line $ ")}"
+        line $ "})"
 
     TenCall nm Args{..} es
       | isOpName nm && (length es == 2) -> go (es!!0) <> printName nm <> go (es!!1)
@@ -95,6 +95,26 @@ printTenExpr te =
 
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")
+
+printMain :: Text -> Text
+printMain mod =
+  execWriter $ do
+    line $ "#include <random>"
+    line $ "#include <iomanip>"
+    line $ "#include <array>"
+    line $ "#include <exception>"
+
+    line $ "#include <tvm/tvm.h>"
+    line $ "#include <tvm/operation.h>"
+    line $ "#include <tvm/tensor.h>"
+    line $ "#include <tvm/build_module.h>"
+    line $ "#include <topi/broadcast.h>"
+
+    line $ "int main()"
+    line $ "{"
+    line $ "auto mod = " <> mod <> ";"
+    line $ "std::cout << mod->GetSource(\"asm\") << std::endl;"
+    line $ "}"
 
 printLibrary :: Library -> Text
 printLibrary (Library te) =
@@ -109,5 +129,7 @@ printLibrary (Library te) =
     line $ "})"
 
 
+printProgram :: Library -> Text
+printProgram l = printMain (printLibrary l)
 
 

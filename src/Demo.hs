@@ -15,7 +15,8 @@ demo1 :: IO Library
 demo1 =
   stageLibrary $ do
     n <- dimvar
-    s <- shapevar [n]
+    s <- shapevar [10]
+    x <- dimvar
     library =<< do
       sequence [
           function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
@@ -69,6 +70,6 @@ demo3 = do
 --         return c
 --     ]
 
-putLib m = tputStrLn =<< pretty =<< printLibrary <$> m
+putLib m = tputStrLn =<< pretty =<< printProgram <$> m
 
 putTenExpr te = tputStrLn =<< pretty =<< printTenExpr <$> te
