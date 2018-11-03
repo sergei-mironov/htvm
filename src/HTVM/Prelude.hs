@@ -22,3 +22,6 @@ tunpack = Text.unpack
 
 tputStrLn :: Text -> IO ()
 tputStrLn = Text.putStrLn
+
+twriteFile :: String -> Text -> IO ()
+twriteFile s f = Text.writeFile s f

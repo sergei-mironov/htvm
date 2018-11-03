@@ -72,4 +72,7 @@ demo3 = do
 
 putLib m = tputStrLn =<< pretty =<< printProgram <$> m
 
+writeLib m = twriteFile "htvm.cpp" =<< pretty =<< printProgram <$> m
+
+
 putTenExpr te = tputStrLn =<< pretty =<< printTenExpr <$> te

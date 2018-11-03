@@ -20,6 +20,7 @@ data DimExpr =
     DimConst Integer
   | DimId Name
   | DimCall Name [DimExpr]
+  | DimCtr Text              -- ^ Dim variable constructor `tvm::var`
   deriving(Show,Read,Ord,Eq)
 
 instance Num DimExpr where

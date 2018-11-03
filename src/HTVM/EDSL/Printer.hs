@@ -25,6 +25,7 @@ printDimExpr se =
       | isOpName nm && length es == 2 -> go (es!!0) <> printName nm <> go (es!!1)
       | isOpName nm && length es == 1 -> printName nm <> go (es!!0)
       | otherwise -> printName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
+    DimCtr n -> "tvm::var(\"" <> n <> "\")"
 
 printShapeExpr :: ShapeExpr -> Text
 printShapeExpr se =
@@ -62,13 +63,20 @@ isOpName (Name n) = n`Text.isInfixOf`"+-*/"
 printPattern :: Pattern -> Text
 printPattern (Pattern n) = printName n
 
+printType :: Type -> Text
+printType t =
+  case t of
+    TypeFloat32 -> "tvm::Float(32)"
+    TypeInt32 ->  "tvm::Int(32)"
+    Tensor _ _ -> "tvm::Tensor()"
+
 printTenExpr :: TenExpr -> Text
 printTenExpr te =
   let
     go = printTenExpr
   in
   case te of
-    TenPlh (n,_,_) -> "tvm::placeholder(name=\""<>n<>"\")"
+    TenPlh (n,ty,s) -> "tvm::placeholder(" <> printShapeExpr s <> "," <> printType ty <> ",\""<>n<>"\")"
     TenId n -> printName n
     TenLet pat e1@(TenLet _ _ _) e2 -> "auto " <> printName (p_name pat) <> " = ({" <> go e1 <> "; });\n" <> go e2
     TenLet pat e1 e2 -> "auto " <> printName (p_name pat) <> " = " <> go e1 <> ";\n" <> go e2

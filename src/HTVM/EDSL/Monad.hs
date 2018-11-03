@@ -81,19 +81,6 @@ stageLibrary :: (Monad m) => StmtT m Library -> m Library
 stageLibrary s = stage <$> runStmtT initStmtCtx s where
   stage (Library te,StmtCtx{..}) = Library $ sc_expr te
 
--- assign'' :: (Monad m) => Pattern -> a -> Text -> (a -> TenExpr) -> (Pattern -> a) -> StmtT m a
--- assign'' p a prefix ctr ctrP = do
---   modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet p (ctr a) te)}
---   return $ ctrP p
-
--- assign' :: (Monad m) => a -> Text -> (a -> TenExpr) -> (Pattern -> a) -> StmtT m Name
--- assign' a prefix ctr ctrP = do
---   p <- Pattern <$> freshP prefix
---   assign'' p a prefix ctr ctrP
-
--- assignN :: (Monad m) => Name -> TenExpr -> StmtT m ()
--- assignN n te1 = do
-
 assign_ :: (Monad m) => Name -> TenExpr -> StmtT m ()
 assign_ n te1 = do
   modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet (Pattern n) te1 te)}
@@ -132,8 +119,9 @@ call fname attrs args = TenCall (Name fname) attrs args
 
 dimvar :: (Monad m) => StmtT m DimExpr
 dimvar = do
-  n <- assignN "var" (TenDim (DimCall (Name "tvm::var") []))
-  return (DimId n)
+  nm <- freshP "var"
+  assign_ nm (TenDim (DimCtr $ n_get nm))
+  return (DimId nm)
 
 shapevar :: (Monad m) => [DimExpr] -> StmtT m ShapeExpr
 shapevar de = do
