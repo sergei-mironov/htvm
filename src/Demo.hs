@@ -27,7 +27,7 @@ demo1 =
             d <- compute (s<>s) $ \[i,j] -> c![i,s!(0::Integer)] * c![i+i,2*i]
             -- ax1 <- reduce
             -- e <- compute s $ \[i] -> d![ax1,i] * c![i]
-            f <- assign $ call "topi.relu" nullArgs [d]
+            f <- assign $ call "topi::relu<double>" nullArgs [d]
             return f
         ]
 

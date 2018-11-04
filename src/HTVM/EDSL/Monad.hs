@@ -81,37 +81,39 @@ stageLibrary :: (Monad m) => StmtT m Library -> m Library
 stageLibrary s = stage <$> runStmtT initStmtCtx s where
   stage (Library te,StmtCtx{..}) = Library $ sc_expr te
 
-assign_ :: (Monad m) => Name -> TenExpr -> StmtT m ()
-assign_ n te1 = do
-  modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet (Pattern n) te1 te)}
+assign_ :: (Monad m) => Pattern -> TenExpr -> StmtT m ()
+assign_ p te1 = do
+  modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet p te1 te)}
 
-assignN :: (Monad m) => Text -> TenExpr -> StmtT m Name
-assignN prefix te1 = do
+assignN :: (Monad m) => (Name -> Pattern) -> Text -> TenExpr -> StmtT m Name
+assignN mkpat prefix te1 = do
   n <- freshP prefix
-  assign_ n te1
+  assign_ (mkpat n) te1
   return n
 
 assign :: (Monad m) => TenExpr -> StmtT m TenExpr
-assign te = TenId <$> assignN "asgn" te
+assign te = TenId <$> assignN PTensor "asgn" te
 
 function :: (Monad m) => Text -> [Placeholder] -> ([TenExpr] -> StmtT m TenExpr) -> StmtT m Function
 function n plh fbody = do
   Function <$> do
-    (\x -> assign_ (Name n) x >> pure (TenId (Name n))) =<< do
+    (\x -> assign_ (PFunc (Name n)) x >> pure (TenId (Name n))) =<< do
       scope $ do
-        plhs <- map TenId <$> (forM plh $ assignN "plh" . TenPlh)
-        res <- fbody plhs
-        modify $ \s -> s{sc_expr = \te -> TenDef (Name n) ((sc_expr s) te)}
-        return $ TenTuple (plhs <> [res])
+        plhs <- map TenId <$> (forM plh $ assignN PTensor "plh" . TenPlh)
+        bres <- fbody plhs
+        res <- assignN PTenTuple "res" (TenTuple (plhs <> [bres]))
+        modify $ \s -> s{sc_expr = \te -> TenDef n ((sc_expr s) te)}
+        return (TenId res)
 
 -- | Version of assign where the computation rule is specified for each
 -- Tensor's item
 compute :: (MonadIO m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m TenExpr
 compute se ebody = do
-  nm <- freshP "cpt"
-  dims <- pure $ map (EShapeSlice (ShapeId (shapeDim se) nm)) [1..shapeDim se]
-  assign_ nm (TenCompute se (Pattern nm) (ebody dims))
-  return (TenId nm)
+  res <- freshP "computed"
+  axis <- freshP "vars"
+  axis_dims <- pure $ map (EShapeSlice (ShapeId (shapeDim se) axis)) [1..shapeDim se]
+  assign_ (PTensor res) (TenCompute se (PAxis axis) (ebody axis_dims))
+  return (TenId res)
 
 -- | Call a function
 call :: Text -> Args -> [TenExpr] -> TenExpr
@@ -120,17 +122,18 @@ call fname attrs args = TenCall (Name fname) attrs args
 dimvar :: (Monad m) => StmtT m DimExpr
 dimvar = do
   nm <- freshP "var"
-  assign_ nm (TenDim (DimCtr $ n_get nm))
+  assign_ (PVar nm) (TenDim (DimCtr $ n_get nm))
   return (DimId nm)
 
 shapevar :: (Monad m) => [DimExpr] -> StmtT m ShapeExpr
 shapevar de = do
-  n <- assignN "shape" (TenShape (foldr1 ShapeSum (map ShapeVector de)))
+  n <- assignN PShape "shape" (TenShape (foldr1 ShapeSum (map ShapeVector de)))
   return (ShapeId (toInteger $ length de) n)
 
 library :: (Monad m) => [Function] -> StmtT m Library
 library fns = do
-  return $ Library $ TenTuple (map unFunction fns)
+  n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))
+  return $ Library (TenId n)
 
 
 class Sliceable a b c | a->c, b->c where

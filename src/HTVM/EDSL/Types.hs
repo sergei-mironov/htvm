@@ -58,6 +58,9 @@ shapeDim (ShapeSum se1 se2) = shapeDim se1 + shapeDim se2
 instance Semigroup ShapeExpr where
   (<>) a b = ShapeSum a b
 
+shape :: [DimExpr] -> ShapeExpr
+shape des = undefined
+
 -- | Convert ShapeExpr in flattern form, where each list itme represents a
 -- dimention, either of known size or unknown at compile time. Empty list
 -- represents a shape of scalar.
@@ -76,7 +79,7 @@ data Expr =
     EConst Const             -- ^ A constant
   | EId Name                 -- ^ A variable
   | EShapeSlice ShapeExpr Integer
-                             -- ^ ShapeExpr is an Expression
+                             -- ^ Access a certain dimention of ShapeExpr
   | ETenSlice TenExpr [Expr] -- ^ Accessing an individual element of a tensor
   | ECall Name [Expr]        -- ^ Call of a function or an operator
   | ETuple [Expr]            -- ^ A tuple of expressions
@@ -110,9 +113,15 @@ nullArgs :: Args
 nullArgs = Args mempty Nothing (Just float32)
 
 -- | Pattern is a name of Tensor Expression
-data Pattern = Pattern {
-    p_name :: Name
-  } deriving(Show,Read,Ord,Eq)
+data Pattern =
+    PTensor Name  -- ^ Tensor
+  | PShape Name   -- ^ Array<Expr>
+  | PVar Name     -- ^ Var
+  | PFunc Name    -- ^ LoweredFunc
+  | PAxis Name    -- ^ Array<Var>
+  | PTenTuple Name
+  | PFuncTuple Name
+  deriving(Show,Read,Ord,Eq)
 
 -- | Tensor Expressions. Allow us to write code like
 -- `Tensor a,b; Tensor c = a + b;`
@@ -126,7 +135,7 @@ data TenExpr =
   | TenShape ShapeExpr
   | TenAxis Axis
   | TenCompute ShapeExpr Pattern Expr
-  | TenDef Name TenExpr                 -- ^ FIXME: TenDef would be redundant
+  | TenDef Text TenExpr                 -- ^ FIXME: TenDef would be redundant
                                         --   in the presence of typechecker.
   | TenCall { tc_fname::Name, tc_attrs::Args, tc_args::[TenExpr] }
                                         -- ^ Function call. `tc_fname` is the
