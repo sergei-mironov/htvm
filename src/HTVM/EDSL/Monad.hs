@@ -15,7 +15,6 @@ import Control.Monad.State
 import Control.Monad.Trans
 import Data.Maybe (fromMaybe,fromJust)
 import Data.Text (Text)
-import System.Process (readCreateProcess,shell)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
@@ -111,7 +110,7 @@ compute :: (MonadIO m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m TenExpr
 compute se ebody = do
   res <- freshP "computed"
   axis <- freshP "vars"
-  axis_dims <- pure $ map (EShapeSlice (ShapeId (shapeDim se) axis)) [1..shapeDim se]
+  axis_dims <- pure $ map (EShapeSlice (ShapeId (shapeDim se) axis)) [0..(shapeDim se)-1]
   assign_ (PTensor res) (TenCompute se (PAxis axis) (ebody axis_dims))
   return (TenId res)
 
@@ -136,7 +135,7 @@ library fns = do
   return $ Library (TenId n)
 
 
-class Sliceable a b c | a->c, b->c where
+class Sliceable a b c | a->c, b->c, a->b where
   (!) :: a -> b -> c
 
 instance Sliceable TenExpr [Expr] Expr where
@@ -147,8 +146,4 @@ instance Sliceable ShapeExpr Integer Expr where
   (!) :: ShapeExpr -> Integer -> Expr
   (!) t sl = EShapeSlice t sl
 
-
-
-pretty :: Text -> IO Text
-pretty t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 

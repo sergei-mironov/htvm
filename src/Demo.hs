@@ -3,7 +3,6 @@
 module Demo where
 
 import Control.Monad.Trans
-
 import HTVM.Prelude
 import HTVM
 
@@ -19,16 +18,17 @@ demo1 =
     x <- dimvar
     library =<< do
       sequence [
-          function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+          function "foo" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
             s2 <- dimvar
-            liftIO $ putStrLn "Yarr!"
             c <- compute s $ \[i] -> a![i] + b![i]
             c <- compute s $ \[i] -> a![i] + b![i]
-            d <- compute (s<>s) $ \[i,j] -> c![i,s!(0::Integer)] * c![i+i,2*i]
-            -- ax1 <- reduce
-            -- e <- compute s $ \[i] -> d![ax1,i] * c![i]
+            d <- compute (s<>s) $ \[i,j] -> c![s!0] * c![i+j]
             f <- assign $ call "topi::relu<double>" nullArgs [d]
             return f
+
+        , function "bar" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+            c <- compute s $ \[i] -> a![i] * b![i]
+            return c
         ]
 
 demo3 :: IO TenExpr
@@ -70,9 +70,8 @@ demo3 = do
 --         return c
 --     ]
 
-putLib m = tputStrLn =<< pretty =<< printProgram <$> m
+putLib m = tputStrLn =<< prettyCpp =<< printProgram <$> m
 
-writeLib m = twriteFile "htvm.cpp" =<< pretty =<< printProgram <$> m
+writeLib m = twriteFile "htvm.cpp" =<< prettyCpp =<< printProgram <$> m
 
-
-putTenExpr te = tputStrLn =<< pretty =<< printTenExpr <$> te
+putTenExpr te = tputStrLn =<< prettyCpp =<< printTenExpr <$> te

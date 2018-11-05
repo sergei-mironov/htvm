@@ -39,6 +39,19 @@ let
 
     shellHook = ''
       cabal() {( `which cabal` --ghc-options=-freverse-errors "$@" ; )}
+
+      # Fix g++(v7.3): error: unrecognized command line option ‘-stdlib=libstdc++’; did you mean ‘-static-libstdc++’?
+      unset NIX_CXXSTDLIB_LINK NIX_TARGET_CXXSTDLIB_LINK
+
+      export CWD=`(cd ../../..; pwd)`
+
+      export TVM=$CWD/src/$USER/tvm
+      export BUILD=build-native
+      export PYTHONPATH="$CWD/src/$USER:$TVM/python:$TVM/topi/python:$TVM/nnvm/python:$PYTHONPATH"
+      export LD_LIBRARY_PATH="$TVM/$BUILD:$LD_LIBRARY_PATH"
+      export C_INCLUDE_PATH="$TVM/include:$TVM/3rdparty/dmlc-core/include:$TVM/3rdparty/HalideIR/src:$TVM/3rdparty/dlpack/include:$TVM/topi/include:$TVM/nnvm/include"
+      export CPLUS_INCLUDE_PATH="$C_INCLUDE_PATH"
+      export LIBRARY_PATH=$TVM/$BUILD
     '';
   };
 

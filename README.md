@@ -36,6 +36,9 @@ Haskell tools as usual:
 Log
 ===
 
+#### 05.11.2018
+* Complete the bare-minimun EDSL, implement simple compile routine
+
 #### 25.10.2018
 * Fix assign error. Drop show instance for StmtCtx, unfortunately.
 

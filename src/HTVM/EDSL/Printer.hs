@@ -91,6 +91,7 @@ printTenExpr te =
     TenId n -> printName n
     TenLet pat e1@(TenLet _ _ _) e2 -> printPattern pat <> " = ({" <> go e1 <> "; });\n" <> go e2
     TenLet pat e1 e2 -> printPattern pat <> " = " <> go e1 <> ";\n" <> go e2
+    TenAxis ax -> error "printTenExpr: Axis (aka `tvm::IterVar`) is not implemented"
     TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
     TenDim s -> printDimExpr s
     TenShape s -> printShapeExpr s
@@ -106,7 +107,6 @@ printTenExpr te =
         line $ "auto lowered = tvm::lower(s, f, \"" <> n <> "\", binds, config);"
         line $ "lowered[0];"
         line $ "})"
-
     TenCall nm Args{..} es
       | isOpName nm && (length es == 2) -> go (es!!0) <> printName nm <> go (es!!1)
       | isOpName nm && (length es == 1) -> printName nm <> go (es!!0)
@@ -118,6 +118,7 @@ line x = tell (x <> "\n")
 printMain :: Text -> Text
 printMain mod =
   execWriter $ do
+    line $ "#include <iostream>"
     line $ "#include <random>"
     line $ "#include <iomanip>"
     line $ "#include <array>"
@@ -160,5 +161,4 @@ printLibrary (Library te) =
 
 printProgram :: Library -> Text
 printProgram l = printMain (printLibrary l)
-
 

@@ -21,6 +21,7 @@ library
     , text
     , pretty-show
     , process
+    , filepath
   hs-source-dirs:
       src
   default-language:
@@ -31,6 +32,7 @@ library
       HTVM.EDSL.Types
     , HTVM.EDSL.Monad
     , HTVM.EDSL.Printer
+    , HTVM.EDSL.Build
     , HTVM.EDSL
     , HTVM.IR.Types
     , HTVM.IR
