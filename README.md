@@ -36,6 +36,9 @@ Haskell tools as usual:
 Log
 ===
 
+#### 06.11.2018
+* Write FFI stub
+
 #### 05.11.2018
 * Complete the bare-minimun EDSL, implement simple compile routine
 

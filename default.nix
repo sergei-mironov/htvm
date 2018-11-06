@@ -33,7 +33,7 @@ let
       haskdogs
     ];
 
-    executableToolDepends = [ pkgs.clang_6 ];
+    executableToolDepends = [ pkgs.clang_6 haskellPackages.c2hs ];
 
     license = stdenv.lib.licenses.gpl3;
 
