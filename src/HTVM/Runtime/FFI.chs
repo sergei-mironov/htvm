@@ -11,12 +11,45 @@ module HTVM.Runtime.FFI where
 import Data.ByteString (ByteString,pack)
 import Data.Word (Word8,Word16)
 import Data.Bits (FiniteBits(..),(.&.),shiftR)
-import Foreign (Ptr, Storable, alloca, peek, plusPtr, poke)
+import Foreign (Ptr, Storable(..), alloca, peek, plusPtr, poke)
 import Foreign.C.Types (CInt, CLong)
 import System.IO.Unsafe (unsafePerformIO)
 
 
 #include <dlpack/dlpack.h>
+#include <tvm/runtime/c_runtime_api.h>
+
+data DLTensor
+
+instance Storable DLTensor where
+  sizeOf _ = {# sizeof DLTensor #}
+  alignment _ = {# alignof DLTensor #}
+  peek = undefined
+  poke = undefined
+
+foreign import ccall unsafe "c_runtime_api.h TVMArrayAlloc"
+    tvm_array_alloc
+      :: Ptr Int      -- shape
+      -> Int          -- ndim,
+      -> Int          -- dtype_code,
+      -> Int          -- dtype_bits,
+      -> Int          -- dtype_lanes,
+      -> Int          -- device_type,
+      -> Int          -- device_id,
+      -> Ptr DLTensor -- DLTensor* out
+      -> IO Int
+
+
+-- dltensor_alloc :: [Integer] -> Integer -> IO (Ptr DLTensor)
+-- dltensor_alloc shape ndim dtype dtbits dtlanes devtype devid = do
+--   TVMArrayAlloc
+
+dltensor_compute :: Ptr DLTensor -> [Integer] -> ([Integer] -> Float) -> IO (Ptr DLTensor)
+dltensor_compute pdlt shape fun =
+  let
+  in do
+  undefined
+
 
 {-
 
