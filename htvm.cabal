@@ -31,6 +31,8 @@ library
       c2hs
   ghc-options:
     -fwarn-incomplete-patterns
+  extra-libraries:
+    tvm
   exposed-modules:
       HTVM.EDSL.Types
     , HTVM.EDSL.Monad
@@ -40,4 +42,26 @@ library
     , HTVM.IR.Types
     , HTVM.IR
     , HTVM.Runtime.FFI
+    , HTVM.Runtime
+    , HTVM.Prelude
     , HTVM
+
+test-suite test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs:
+    test
+  ghc-options: -Wall -Werror
+  build-depends:
+      base >=4.7 && < 5
+    , bytestring
+    , containers
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+    , recursion-schemes
+    , htvm
+  default-language: Haskell2010
+  ghc-options:
+    -Wall -Wno-unused-imports
+

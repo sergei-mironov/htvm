@@ -1,55 +1,146 @@
 -- | Module defines wrappers for DLPack messages which are used by TVM to pass
 -- to/from models
 
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+-- {-# OPTIONS_GHC -fwarn-unused-imports #-}
+-- {-# OPTIONS_GHC -fwarn-missing-signatures #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 
 module HTVM.Runtime.FFI where
 
+import Control.Exception (Exception, throwIO)
 import Data.ByteString (ByteString,pack)
-import Data.Word (Word8,Word16)
+import Data.Word (Word8,Word16,Word32,Word64)
+import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Bits (FiniteBits(..),(.&.),shiftR)
-import Foreign (Ptr, Storable(..), alloca, peek, plusPtr, poke)
+import Foreign (Ptr, Storable(..), alloca, allocaArray, peek, plusPtr, poke, pokeArray)
 import Foreign.C.Types (CInt, CLong)
 import System.IO.Unsafe (unsafePerformIO)
+
+import HTVM.Prelude
+
+
+data TVMError =
+    TVMAllocFailed Int
+  | TVMFreeFailed Int
+  deriving(Show,Read,Ord,Eq)
+
+instance Exception TVMError
 
 
 #include <dlpack/dlpack.h>
 #include <tvm/runtime/c_runtime_api.h>
 
-data DLTensor
+{# enum DLDataTypeCode as TVMDataTypeCode {upcaseFirstLetter} deriving(Eq) #}
+{# enum DLDeviceType as TVMDeviceType {upcaseFirstLetter} deriving(Eq) #}
 
-instance Storable DLTensor where
+{# enum TVMDeviceExtType {upcaseFirstLetter} deriving(Eq) #}
+{# enum TVMTypeCode {upcaseFirstLetter} deriving(Eq) #}
+
+type TVMShapeIndex = {# type tvm_index_t #}
+type TVMDeviceId = Int
+
+data TVMContext
+data TVMTensor
+
+instance Storable TVMTensor where
   sizeOf _ = {# sizeof DLTensor #}
   alignment _ = {# alignof DLTensor #}
   peek = undefined
   poke = undefined
 
 foreign import ccall unsafe "c_runtime_api.h TVMArrayAlloc"
-    tvm_array_alloc
-      :: Ptr Int      -- shape
-      -> Int          -- ndim,
-      -> Int          -- dtype_code,
-      -> Int          -- dtype_bits,
-      -> Int          -- dtype_lanes,
-      -> Int          -- device_type,
-      -> Int          -- device_id,
-      -> Ptr DLTensor -- DLTensor* out
-      -> IO Int
+  tvmArrayAlloc
+    :: Ptr TVMShapeIndex
+                     -- shape
+    -> Int           -- ndim,
+    -> Int           -- dtype_code,
+    -> Int           -- dtype_bits,
+    -> Int           -- dtype_lanes,
+    -> Int           -- device_type,
+    -> Int           -- device_id,
+    -> Ptr TVMTensor -- DLTensor* out
+    -> IO Int
+
+foreign import ccall unsafe "c_runtime_api.h TVMArrayFree"
+  tvmArrayFree :: Ptr TVMTensor -> IO Int
 
 
--- dltensor_alloc :: [Integer] -> Integer -> IO (Ptr DLTensor)
--- dltensor_alloc shape ndim dtype dtbits dtlanes devtype devid = do
---   TVMArrayAlloc
 
-dltensor_compute :: Ptr DLTensor -> [Integer] -> ([Integer] -> Float) -> IO (Ptr DLTensor)
-dltensor_compute pdlt shape fun =
-  let
-  in do
-  undefined
+class TVMIndex i where
+  tvmList :: i -> [Integer]
 
+instance TVMIndex Integer where tvmList a = [a]
+instance TVMIndex (Integer,Integer) where tvmList (a,b) = [a,b]
+instance TVMIndex (Integer,Integer,Integer) where tvmList (a,b,c) = [a,b,c]
+instance TVMIndex (Integer,Integer,Integer,Integer) where tvmList (a,b,c,d) = [a,b,c,d]
+
+tvmIndexDims :: (TVMIndex i) => i -> Integer
+tvmIndexDims = ilength . tvmList
+
+class TVMElemType e where
+  tvmTypeCode :: TVMDataTypeCode
+  tvmTypeBits :: Integer
+  -- | Make a parameter of type
+  tvmTypeLanes :: Integer
+
+instance TVMElemType Int32 where tvmTypeCode = KDLInt; tvmTypeBits = 32; tvmTypeLanes = 1
+instance TVMElemType Float where tvmTypeCode = KDLFloat; tvmTypeBits = 32; tvmTypeLanes = 1
+instance TVMElemType Word64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
+
+class (TVMIndex i, TVMElemType e) => TVMData d i e | d -> i, d -> e where
+  tvmIShape :: d -> i
+  tvmIndex :: d -> i -> IO e
+
+instance (TVMIndex i, TVMElemType e) => TVMData (Array i e) where
+  tvmIShape d = Array.bounds d
+
+tvmDataShape :: (TVMData d i e) => d -> [Integer]
+tvmDataShape = tvmList . tvmIShape
+
+tvmDataDims :: (TVMData d i e) => d -> Integer
+tvmDataDims = ilength . tvmDataShape
+
+--tvmDataTypeCode :: forall d i e . (TVMData d i e) => d -> TVMDataTypeCode
+--tvmDataTypeCode _ = tvmTypeCode (Proxy :: Proxy e)
+
+
+with_tvmTensor :: forall d i e b . (TVMData d i e)
+              => d
+              -> TVMDeviceType
+              -> TVMDeviceId
+              -> (Ptr TVMTensor -> IO b)
+              -> IO b
+with_tvmTensor d dt did f = do
+  alloca $ \ptensor ->
+    let
+      shape = map fromInteger $ tvmDataShape d
+      ndim = fromInteger $ tvmDataDims d
+    in
+    allocaArray ndim $ \pshape -> do
+      pokeArray pshape shape
+      r <- tvmArrayAlloc
+              pshape ndim
+              (fromEnum $ tvmTypeCode @e)
+              (fromInteger $ tvmTypeBits @e)
+              (fromInteger $ tvmTypeLanes @e)
+              (fromEnum dt)
+              did
+              ptensor
+      case r of
+        0 -> do
+          b <- f ptensor
+          r <- tvmArrayFree ptensor
+          case r of
+            0 -> return b
+            e -> throwIO (TVMFreeFailed e)
+        e -> throwIO (TVMAllocFailed e)
 
 {-
 

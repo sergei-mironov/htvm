@@ -10,6 +10,7 @@ import qualified Data.Text.IO as Text
 import Text.Show.Pretty(ppShow)
 import Data.Text (Text)
 import Debug.Trace (traceM)
+import Data.Foldable (Foldable)
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show
@@ -25,3 +26,8 @@ tputStrLn = Text.putStrLn
 
 twriteFile :: String -> Text -> IO ()
 twriteFile s f = Text.writeFile s f
+
+ilength :: Foldable t => t a -> Integer
+ilength = toInteger . length
+
+
