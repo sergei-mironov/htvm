@@ -11,6 +11,7 @@ cabal-version:       >=1.10
 library
   build-depends:
       base >=4.11 && <4.12
+    , array
     , Earley
     , pretty-show
     , recursion-schemes

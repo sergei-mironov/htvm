@@ -14,11 +14,16 @@
 
 module HTVM.Runtime.FFI where
 
+import qualified Data.Array as Array
+
 import Control.Exception (Exception, throwIO)
+import Control.Arrow ((***))
+import Data.Array (Array(..))
 import Data.ByteString (ByteString,pack)
 import Data.Word (Word8,Word16,Word32,Word64)
 import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Bits (FiniteBits(..),(.&.),shiftR)
+import Data.Tuple (swap)
 import Foreign (Ptr, Storable(..), alloca, allocaArray, peek, plusPtr, poke, pokeArray)
 import Foreign.C.Types (CInt, CLong)
 import System.IO.Unsafe (unsafePerformIO)
@@ -95,14 +100,27 @@ instance TVMElemType Float where tvmTypeCode = KDLFloat; tvmTypeBits = 32; tvmTy
 instance TVMElemType Word64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
 
 class (TVMIndex i, TVMElemType e) => TVMData d i e | d -> i, d -> e where
-  tvmIShape :: d -> i
+  tvmIShape :: d -> [Integer]
   tvmIndex :: d -> i -> IO e
 
-instance (TVMIndex i, TVMElemType e) => TVMData (Array i e) where
-  tvmIShape d = Array.bounds d
+instance (Array.Ix i, TVMIndex i, TVMElemType e) => TVMData (Array i e) i e where
+  tvmIShape = map (uncurry (-)) . uncurry zip . (tvmList *** tvmList) . Array.bounds
+  tvmIndex d i = pure $ d Array.! i
+
+tvmIShape1 d = [ilength d]
+tvmIndex1 l i = pure $ l !! (fromInteger i)
+instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1
+instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1
+instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1
+
+tvmIShape2 d = [ilength d, ilength (head d)]
+tvmIndex2 l (r,c) = pure $ l !! (fromInteger r) !! (fromInteger c)
+instance TVMData [[Float]] (Integer,Integer) Float where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2
+instance TVMData [[Int32]] (Integer,Integer) Int32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2
+instance TVMData [[Word64]] (Integer,Integer) Word64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2
 
 tvmDataShape :: (TVMData d i e) => d -> [Integer]
-tvmDataShape = tvmList . tvmIShape
+tvmDataShape = tvmIShape
 
 tvmDataDims :: (TVMData d i e) => d -> Integer
 tvmDataDims = ilength . tvmDataShape
