@@ -36,23 +36,28 @@ Haskell tools as usual:
 Log
 ===
 
+#### 10.11.2018
+ * Improved FFI. Now it should be possible to allocate tensors from Haskell
+ * Added stub for tests
+ * Learned about `-XTypeApplications` option
+
 #### 06.11.2018
-* Write FFI stub
+ * Write FFI stub
 
 #### 05.11.2018
-* Complete the bare-minimun EDSL, implement simple compile routine
+ * Complete the bare-minimun EDSL, implement simple compile routine
 
 #### 25.10.2018
-* Fix assign error. Drop show instance for StmtCtx, unfortunately.
+ * Fix assign error. Drop show instance for StmtCtx, unfortunately.
 
 #### 24.10.2018
-* Printer compiles
+ * Printer compiles
 
 #### 22.10.2018
-* Started to implement Printer
+ * Started to implement Printer
 
 #### 17.10.2018
-* Demo exposes DSL which compiles somehow
+ * Demo exposes DSL which compiles somehow
 
 #### 15.10.2018
-* Write this README.md
+ * Write this README.md
