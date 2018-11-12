@@ -36,6 +36,10 @@ Haskell tools as usual:
 Log
 ===
 
+#### 12.11.2018
+ * [c2hs guide](https://github.com/haskell/c2hs/wiki/Implementation-of-Haskell-Binding-Modules)
+ * Wrap module and function loaders (not working yet)
+
 #### 10.11.2018
  * Improved FFI. Now it should be possible to allocate tensors from Haskell
  * Added stub for tests

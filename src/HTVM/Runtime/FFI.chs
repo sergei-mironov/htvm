@@ -24,8 +24,10 @@ import Data.Word (Word8,Word16,Word32,Word64)
 import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Bits (FiniteBits(..),(.&.),shiftR)
 import Data.Tuple (swap)
-import Foreign (Ptr, Storable(..), alloca, allocaArray, peek, plusPtr, poke, pokeArray)
+import Data.Text (Text)
+import Foreign (Ptr, Storable(..), alloca, allocaArray, peek, plusPtr, poke, pokeArray, castPtr)
 import Foreign.C.Types (CInt, CLong)
+import Foreign.C.String (CString, withCString, peekCAString)
 import System.IO.Unsafe (unsafePerformIO)
 
 import HTVM.Prelude
@@ -34,6 +36,8 @@ import HTVM.Prelude
 data TVMError =
     TVMAllocFailed Int
   | TVMFreeFailed Int
+  | TVMModLoadFailed Int String
+  | TVMFuncLoadFailed Int
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -102,22 +106,26 @@ instance TVMElemType Word64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTy
 class (TVMIndex i, TVMElemType e) => TVMData d i e | d -> i, d -> e where
   tvmIShape :: d -> [Integer]
   tvmIndex :: d -> i -> IO e
+  tvmFill :: d -> Ptr e -> IO ()
 
-instance (Array.Ix i, TVMIndex i, TVMElemType e) => TVMData (Array i e) i e where
+instance (Storable e, Array.Ix i, TVMIndex i, TVMElemType e) => TVMData (Array i e) i e where
   tvmIShape = map (uncurry (-)) . uncurry zip . (tvmList *** tvmList) . Array.bounds
   tvmIndex d i = pure $ d Array.! i
+  tvmFill d ptr = pokeArray ptr (Array.elems d)
 
 tvmIShape1 d = [ilength d]
 tvmIndex1 l i = pure $ l !! (fromInteger i)
-instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1
-instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1
-instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1
+tvmFill1 d ptr = pokeArray ptr d
+instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmFill = tvmFill1
+instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmFill = tvmFill1
+instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmFill = tvmFill1
 
 tvmIShape2 d = [ilength d, ilength (head d)]
 tvmIndex2 l (r,c) = pure $ l !! (fromInteger r) !! (fromInteger c)
-instance TVMData [[Float]] (Integer,Integer) Float where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2
-instance TVMData [[Int32]] (Integer,Integer) Int32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2
-instance TVMData [[Word64]] (Integer,Integer) Word64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2
+tvmFill2 d ptr = pokeArray ptr (concat d)
+instance TVMData [[Float]] (Integer,Integer) Float where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmFill = tvmFill2
+instance TVMData [[Int32]] (Integer,Integer) Int32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmFill = tvmFill2
+instance TVMData [[Word64]] (Integer,Integer) Word64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmFill = tvmFill2
 
 tvmDataShape :: (TVMData d i e) => d -> [Integer]
 tvmDataShape = tvmIShape
@@ -140,6 +148,7 @@ with_tvmTensor d dt did f = do
     let
       shape = map fromInteger $ tvmDataShape d
       ndim = fromInteger $ tvmDataDims d
+      nels = foldr1 (*) shape
     in
     allocaArray ndim $ \pshape -> do
       pokeArray pshape shape
@@ -153,12 +162,71 @@ with_tvmTensor d dt did f = do
               ptensor
       case r of
         0 -> do
+          {- Copying data from TVMData d-}
+          pdata <- {# get DLTensor->data #} ptensor
+          tvmFill d (castPtr pdata)
+          {- Calling user handler -}
           b <- f ptensor
           r <- tvmArrayFree ptensor
           case r of
             0 -> return b
             e -> throwIO (TVMFreeFailed e)
         e -> throwIO (TVMAllocFailed e)
+
+
+type TVMModule = Ptr ()
+type TVMFunction = Ptr ()
+
+foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
+  tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMModGetFunction"
+  tvmModGetFunction :: Ptr TVMModule -> CString -> CInt -> Ptr TVMFunction -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
+  tvmGetLastError :: IO CString
+
+-- | Load module from 'so' dynamic library
+-- TODO: Unload the module
+-- TODO: Pass GetLastError in case of failure
+withModule :: Text -> (Ptr TVMModule -> IO b) -> IO b
+withModule modname func =
+  alloca $ \pmod -> do
+  withCString (tunpack modname) $ \cmodname -> do
+    r <- tvmModLoadFromFile cmodname cmodname pmod
+    case r of
+      0 -> func pmod
+      err -> do
+        str <- peekCAString =<< tvmGetLastError
+        throwIO (TVMModLoadFailed (fromInteger $ toInteger err) str)
+
+-- | Load the function from module
+-- TODO: Unload the module
+-- TODO: Pass GetLastError in case of failure
+withFunction :: Text -> Ptr TVMModule -> (Ptr TVMFunction -> IO b) -> IO b
+withFunction funcname pmod func =
+  alloca $ \pfunc -> do
+  withCString (tunpack funcname) $ \cfuncname -> do
+    r <- tvmModGetFunction pmod cfuncname 0 pfunc
+    case r of
+      0 -> func pfunc
+      err -> throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err))
+
+{-
+TVM_DLL int TVMModGetFunction(TVMModuleHandle mod,
+                              const char* func_name,
+                              int query_imports,
+                              TVMFunctionHandle *out);
+-}
+
+{-
+foreign import ccall unsafe "dlfcn.h dlopen"
+  dlopen :: CString -> Int -> IO (Ptr ModuleHandle)
+foreign import ccall unsafe "dlfcn.h dlclose"
+  dlclose :: Ptr ModuleHandle -> IO ()
+-}
+
+
 
 {-
 
