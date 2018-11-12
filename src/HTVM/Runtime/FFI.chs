@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE NondecreasingIndentation #-}
 
 
 module HTVM.Runtime.FFI where
@@ -37,7 +38,7 @@ data TVMError =
     TVMAllocFailed Int
   | TVMFreeFailed Int
   | TVMModLoadFailed Int String
-  | TVMFuncLoadFailed Int
+  | TVMFuncLoadFailed Int String
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -56,13 +57,29 @@ type TVMShapeIndex = {# type tvm_index_t #}
 type TVMDeviceId = Int
 
 data TVMContext
+
+instance Storable TVMContext where
+  sizeOf _ = {# sizeof TVMContext #}
+  alignment _ = {# alignof TVMContext #}
+  peek = error "peek undefined"
+  poke = error "poke undefined"
+
 data TVMTensor
 
 instance Storable TVMTensor where
   sizeOf _ = {# sizeof DLTensor #}
   alignment _ = {# alignof DLTensor #}
-  peek = undefined
-  poke = undefined
+  peek = error "peek undefined"
+  poke = error "poke undefined"
+
+data TVMValue
+
+instance Storable TVMValue where
+  sizeOf _ = {# sizeof TVMValue #}
+  alignment _ = {# alignof TVMValue #}
+  peek = error "peek undefined"
+  poke = error "poke undefined"
+
 
 foreign import ccall unsafe "c_runtime_api.h TVMArrayAlloc"
   tvmArrayAlloc
@@ -181,36 +198,52 @@ foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
   tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMModGetFunction"
-  tvmModGetFunction :: Ptr TVMModule -> CString -> CInt -> Ptr TVMFunction -> IO CInt
+  tvmModGetFunction :: TVMModule -> CString -> CInt -> Ptr TVMFunction -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
   tvmGetLastError :: IO CString
 
+foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
+  tvmFuncCall :: TVMFunction -> Ptr TVMValue -> Ptr CInt -> CInt -> Ptr TVMValue -> Ptr CInt -> IO CInt
+
+getLastError :: IO String
+getLastError = peekCAString =<< tvmGetLastError
+
 -- | Load module from 'so' dynamic library
 -- TODO: Unload the module
 -- TODO: Pass GetLastError in case of failure
-withModule :: Text -> (Ptr TVMModule -> IO b) -> IO b
+withModule :: Text -> (TVMModule -> IO b) -> IO b
 withModule modname func =
   alloca $ \pmod -> do
   withCString (tunpack modname) $ \cmodname -> do
-    r <- tvmModLoadFromFile cmodname cmodname pmod
+  withCString "so" $ \so -> do
+    r <- tvmModLoadFromFile cmodname so pmod
     case r of
-      0 -> func pmod
+      0 -> func =<< peek pmod
       err -> do
-        str <- peekCAString =<< tvmGetLastError
+        str <- getLastError
         throwIO (TVMModLoadFailed (fromInteger $ toInteger err) str)
 
 -- | Load the function from module
 -- TODO: Unload the module
 -- TODO: Pass GetLastError in case of failure
-withFunction :: Text -> Ptr TVMModule -> (Ptr TVMFunction -> IO b) -> IO b
-withFunction funcname pmod func =
+withFunction :: Text -> TVMModule -> (TVMFunction -> IO b) -> IO b
+withFunction funcname mod func =
   alloca $ \pfunc -> do
   withCString (tunpack funcname) $ \cfuncname -> do
-    r <- tvmModGetFunction pmod cfuncname 0 pfunc
+    r <- tvmModGetFunction mod cfuncname 0 pfunc
     case r of
-      0 -> func pfunc
-      err -> throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err))
+      0 -> func =<< peek pfunc
+      err -> do
+        str <- getLastError
+        throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) str)
+
+
+callFunction :: TVMFunction -> [TVMValue] -> IO TVMValue
+callFunction fun vals = undefined
+
+callTensorFunction :: TVMFunction -> [TVMTensor] -> IO ()
+callTensorFunction fun tens = undefined
 
 {-
 TVM_DLL int TVMModGetFunction(TVMModuleHandle mod,

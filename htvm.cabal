@@ -33,7 +33,7 @@ library
   ghc-options:
     -fwarn-incomplete-patterns
   extra-libraries:
-    tvm
+    tvm_runtime dl pthread
   exposed-modules:
       HTVM.EDSL.Types
     , HTVM.EDSL.Monad
@@ -63,6 +63,8 @@ test-suite test
     , recursion-schemes
     , htvm
   default-language: Haskell2010
+  extra-libraries:
+    tvm_runtime dl pthread
   ghc-options:
     -Wall -Wno-unused-imports
 

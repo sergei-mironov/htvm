@@ -6,9 +6,9 @@ module Main where
 import Test.Tasty (TestTree, testGroup, defaultMain)
 import Test.Tasty.HUnit (testCase, assertBool, (@?=))
 
-import Control.Monad(when)
+import Control.Monad (when)
 import Data.Functor.Foldable (Fix(..), Recursive(..), Corecursive(..))
-import Data.Maybe(fromMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 
 import HTVM.Prelude
@@ -20,8 +20,8 @@ main :: IO ()
 main = defaultMain $
     testGroup "All" [
       testCase "FFI" $ do
-        withModule "model.so" $ \pmod -> do
-        withFunction "vecadd" pmod $ \_ -> do
+        withModule "./model.so" $ \hmod -> do
+        withFunction "vecadd" hmod $ \_ -> do
         with_tvmTensor ([1.0, 2.0, 3.0, 4.0] :: [Float]) KDLCPU 0 $ \_ -> do
           tputStrLn "Inside!"
         return ()
