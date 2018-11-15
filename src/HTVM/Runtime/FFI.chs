@@ -20,6 +20,7 @@ import qualified Data.Array as Array
 
 import Control.Exception (Exception, throwIO)
 import Control.Arrow ((***))
+import Control.Monad (forM_)
 import Data.Array (Array(..))
 import Data.ByteString (ByteString,pack)
 import Data.Word (Word8,Word16,Word32,Word64)
@@ -27,7 +28,7 @@ import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Bits (FiniteBits(..),(.&.),shiftR)
 import Data.Tuple (swap)
 import Data.Text (Text)
-import Foreign (Ptr, Storable(..), alloca, allocaArray, peek, plusPtr, poke, pokeArray, castPtr)
+import Foreign (Ptr, Storable(..), alloca, allocaArray, peek, plusPtr, poke, pokeArray, castPtr, advancePtr)
 import Foreign.C.Types (CInt, CLong)
 import Foreign.C.String (CString, withCString, peekCAString)
 import System.IO.Unsafe (unsafePerformIO)
@@ -40,6 +41,8 @@ data TVMError =
   | TVMFreeFailed Int
   | TVMModLoadFailed Int String
   | TVMFuncLoadFailed Int String
+  | TVMFunCallFailed Int
+  | TVMFunCallBadType Int
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -53,6 +56,12 @@ instance Exception TVMError
 
 {# enum TVMDeviceExtType {upcaseFirstLetter} deriving(Eq) #}
 {# enum TVMTypeCode {upcaseFirstLetter} deriving(Eq) #}
+
+instance Storable TVMTypeCode where
+  sizeOf _ = {# sizeof TVMTypeCode #}
+  alignment _ = {# alignof TVMTypeCode #}
+  peek pc = toEnum <$> peek (castPtr pc)
+  poke pc c = poke (castPtr pc) (fromEnum c)
 
 type TVMShapeIndex = {# type tvm_index_t #}
 type TVMDeviceId = Int
@@ -81,6 +90,16 @@ instance Storable TVMValue where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
+type TVMModule = Ptr ()
+type TVMFunction = Ptr ()
+
+setTensor :: Ptr TVMTensor -> Ptr TVMValue -> Ptr TVMTypeCode -> IO ()
+setTensor pt pv pc = do
+  poke pc KArrayHandle
+  {# set TVMValue.v_handle #} pv (castPtr pt)
+
+-- setStr :: String -> Ptr TVMValue -> Ptr TVMTypeCode -> IO ()
+-- setStr s pv pc = undefined
 
 foreign import ccall unsafe "c_runtime_api.h TVMArrayAlloc"
   tvmArrayAlloc
@@ -227,9 +246,6 @@ withTensorOutput shape dt did f = do
             e -> throwIO (TVMFreeFailed e)
         e -> throwIO (TVMAllocFailed e)
 
-type TVMModule = Ptr ()
-type TVMFunction = Ptr ()
-
 foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
   tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
 
@@ -240,7 +256,7 @@ foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
   tvmGetLastError :: IO CString
 
 foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
-  tvmFuncCall :: TVMFunction -> Ptr TVMValue -> Ptr CInt -> CInt -> Ptr TVMValue -> Ptr CInt -> IO CInt
+  tvmFuncCall :: TVMFunction -> Ptr TVMValue -> Ptr TVMTypeCode -> CInt -> Ptr TVMValue -> Ptr TVMTypeCode -> IO CInt
 
 getLastError :: IO String
 getLastError = peekCAString =<< tvmGetLastError
@@ -283,16 +299,21 @@ callTensorFunction oshape fun ts0 =
     go pts [] = withTensorOutput oshape devtype devid $ \pto -> do
       alloca $ \pret -> do
       alloca $ \pretcode -> do
-      allocaArray (length pts) $ \pvalcodes -> do
-      allocaArray (length pts) $ \pvals -> do
-        {- FIXME: fill the values and codes -}
+      allocaArray (length pts) $ \pv -> do
+      allocaArray (length pts) $ \pc -> do
+        forM_ (pts`zip`[0..(length pts)-1]) $ \(pt,off) -> do
+          setTensor pt (advancePtr pv off) (advancePtr pc off)
+        setTensor pto pret pretcode
         let clen = fromInteger $ toInteger $ length pts
-        r <- tvmFuncCall fun pvals pvalcodes clen pret pretcode
-        case r of
-          0 -> do
+        r <- tvmFuncCall fun pv pc clen pret pretcode
+        rt <- peek pretcode
+        case (r,rt) of
+          (0,KArrayHandle) -> do
             return ()
-          err -> do
-            undefined
+          (x,KArrayHandle) -> do
+            throwIO (TVMFunCallFailed $ fromInteger $ toInteger x)
+          (0,t) -> do
+            throwIO (TVMFunCallBadType $ fromEnum rt)
   in
   fst <$> go [] ts0
 
