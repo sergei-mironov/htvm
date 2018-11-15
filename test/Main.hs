@@ -22,7 +22,7 @@ main = defaultMain $
       testCase "FFI" $ do
         withModule "./model.so" $ \hmod -> do
         withFunction "vecadd" hmod $ \_ -> do
-        with_tvmTensor ([1.0, 2.0, 3.0, 4.0] :: [Float]) KDLCPU 0 $ \_ -> do
+        withTensorInput ([1.0, 2.0, 3.0, 4.0] :: [Float]) KDLCPU 0 $ \_ -> do
           tputStrLn "Inside!"
         return ()
     ]

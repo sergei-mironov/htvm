@@ -112,7 +112,7 @@ data Args = Args {
 nullArgs :: Args
 nullArgs = Args mempty Nothing (Just float32)
 
--- | Pattern is a name of Tensor Expression
+-- | Pattern is a left-hand-side of assignment Expression
 data Pattern =
     PTensor Name  -- ^ Tensor
   | PShape Name   -- ^ Array<Expr>

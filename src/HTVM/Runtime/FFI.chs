@@ -11,6 +11,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE NondecreasingIndentation #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 module HTVM.Runtime.FFI where
@@ -123,26 +124,27 @@ instance TVMElemType Word64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTy
 class (TVMIndex i, TVMElemType e) => TVMData d i e | d -> i, d -> e where
   tvmIShape :: d -> [Integer]
   tvmIndex :: d -> i -> IO e
-  tvmFill :: d -> Ptr e -> IO ()
+  tvmPeek :: Ptr e -> IO d
+  tvmPoke :: d -> Ptr e -> IO ()
 
 instance (Storable e, Array.Ix i, TVMIndex i, TVMElemType e) => TVMData (Array i e) i e where
   tvmIShape = map (uncurry (-)) . uncurry zip . (tvmList *** tvmList) . Array.bounds
   tvmIndex d i = pure $ d Array.! i
-  tvmFill d ptr = pokeArray ptr (Array.elems d)
+  tvmPoke d ptr = pokeArray ptr (Array.elems d)
 
 tvmIShape1 d = [ilength d]
 tvmIndex1 l i = pure $ l !! (fromInteger i)
-tvmFill1 d ptr = pokeArray ptr d
-instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmFill = tvmFill1
-instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmFill = tvmFill1
-instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmFill = tvmFill1
+tvmPoke1 d ptr = pokeArray ptr d
+instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1
+instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1
+instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1
 
 tvmIShape2 d = [ilength d, ilength (head d)]
 tvmIndex2 l (r,c) = pure $ l !! (fromInteger r) !! (fromInteger c)
-tvmFill2 d ptr = pokeArray ptr (concat d)
-instance TVMData [[Float]] (Integer,Integer) Float where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmFill = tvmFill2
-instance TVMData [[Int32]] (Integer,Integer) Int32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmFill = tvmFill2
-instance TVMData [[Word64]] (Integer,Integer) Word64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmFill = tvmFill2
+tvmPoke2 d ptr = pokeArray ptr (concat d)
+instance TVMData [[Float]] (Integer,Integer) Float where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2
+instance TVMData [[Int32]] (Integer,Integer) Int32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2
+instance TVMData [[Word64]] (Integer,Integer) Word64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2
 
 tvmDataShape :: (TVMData d i e) => d -> [Integer]
 tvmDataShape = tvmIShape
@@ -154,13 +156,13 @@ tvmDataDims = ilength . tvmDataShape
 --tvmDataTypeCode _ = tvmTypeCode (Proxy :: Proxy e)
 
 
-with_tvmTensor :: forall d i e b . (TVMData d i e)
+withTensorInput :: forall d i e b . (TVMData d i e)
               => d
               -> TVMDeviceType
               -> TVMDeviceId
               -> (Ptr TVMTensor -> IO b)
               -> IO b
-with_tvmTensor d dt did f = do
+withTensorInput d dt did f = do
   alloca $ \ptensor ->
     let
       shape = map fromInteger $ tvmDataShape d
@@ -181,7 +183,7 @@ with_tvmTensor d dt did f = do
         0 -> do
           {- Copying data from TVMData d-}
           pdata <- {# get DLTensor->data #} ptensor
-          tvmFill d (castPtr pdata)
+          tvmPoke d (castPtr pdata)
           {- Calling user handler -}
           b <- f ptensor
           r <- tvmArrayFree ptensor
@@ -190,6 +192,40 @@ with_tvmTensor d dt did f = do
             e -> throwIO (TVMFreeFailed e)
         e -> throwIO (TVMAllocFailed e)
 
+withTensorOutput :: forall d i e b . (TVMData d i e)
+              => [Integer]
+              -> TVMDeviceType
+              -> TVMDeviceId
+              -> (Ptr TVMTensor -> IO b)
+              -> IO (d,b)
+withTensorOutput shape dt did f = do
+  alloca $ \ptensor ->
+    let
+      ndim = length shape
+      nels = foldr1 (*) shape
+    in
+    allocaArray ndim $ \pshape -> do
+      pokeArray pshape (map (fromInteger . toInteger) shape)
+      r <- tvmArrayAlloc
+              pshape ndim
+              (fromEnum $ tvmTypeCode @e)
+              (fromInteger $ tvmTypeBits @e)
+              (fromInteger $ tvmTypeLanes @e)
+              (fromEnum dt)
+              did
+              ptensor
+      case r of
+        0 -> do
+          {- Calling user handler -}
+          b <- f ptensor
+          {- Copying data from TVMData d-}
+          pdata <- {# get DLTensor->data #} ptensor
+          d <- tvmPeek (castPtr pdata)
+          r <- tvmArrayFree ptensor
+          case r of
+            0 -> return (d,b)
+            e -> throwIO (TVMFreeFailed e)
+        e -> throwIO (TVMAllocFailed e)
 
 type TVMModule = Ptr ()
 type TVMFunction = Ptr ()
@@ -238,12 +274,27 @@ withFunction funcname mod func =
         str <- getLastError
         throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) str)
 
-
-callFunction :: TVMFunction -> [TVMValue] -> IO TVMValue
-callFunction fun vals = undefined
-
-callTensorFunction :: TVMFunction -> [TVMTensor] -> IO ()
-callTensorFunction fun tens = undefined
+callTensorFunction :: forall d i e . (TVMData d i e) => [Integer] -> TVMFunction -> [d] -> IO d
+callTensorFunction oshape fun ts0 =
+  let
+    devtype = KDLCPU
+    devid = 0
+    go pts (t:ts) = withTensorInput t devtype devid $ \pt -> go (pt:pts) ts
+    go pts [] = withTensorOutput oshape devtype devid $ \pto -> do
+      alloca $ \pret -> do
+      alloca $ \pretcode -> do
+      allocaArray (length pts) $ \pvalcodes -> do
+      allocaArray (length pts) $ \pvals -> do
+        {- FIXME: fill the values and codes -}
+        let clen = fromInteger $ toInteger $ length pts
+        r <- tvmFuncCall fun pvals pvalcodes clen pret pretcode
+        case r of
+          0 -> do
+            return ()
+          err -> do
+            undefined
+  in
+  fst <$> go [] ts0
 
 {-
 TVM_DLL int TVMModGetFunction(TVMModuleHandle mod,
