@@ -157,10 +157,10 @@ tvmDataDims = ilength . tvmDataShape
 
 
 withTensorInput :: forall d i e b . (TVMData d i e)
-              => d
-              -> TVMDeviceType
-              -> TVMDeviceId
-              -> (Ptr TVMTensor -> IO b)
+              => d                           -- ^ TvmData tensor-like object
+              -> TVMDeviceType               -- ^ Device type
+              -> TVMDeviceId                 -- ^ Device ID
+              -> (Ptr TVMTensor -> IO b)     -- ^ Handler funtion
               -> IO b
 withTensorInput d dt did f = do
   alloca $ \ptensor ->

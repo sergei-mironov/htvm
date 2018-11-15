@@ -36,6 +36,10 @@ Haskell tools as usual:
 Log
 ===
 
+#### 15.11.2018
+ * Update callTensorFunction, still work in progress. DLTensor -> DLValue
+   converter is needed
+
 #### 12.11.2018
  * [c2hs guide](https://github.com/haskell/c2hs/wiki/Implementation-of-Haskell-Binding-Modules)
  * Wrap module and function loaders (not working yet)
