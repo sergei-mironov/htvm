@@ -39,6 +39,9 @@ Log
 #### 15.11.2018
  * Update callTensorFunction, still work in progress. DLTensor -> DLValue
    converter is needed
+ * Complete the code of callTensorFunction, untested
+ * TODO: implement TVMTensor as a ForeignPtr
+ * TODO: write tests
 
 #### 12.11.2018
  * [c2hs guide](https://github.com/haskell/c2hs/wiki/Implementation-of-Haskell-Binding-Modules)
