@@ -28,7 +28,8 @@ import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Bits (FiniteBits(..),(.&.),shiftR)
 import Data.Tuple (swap)
 import Data.Text (Text)
-import Foreign (Ptr, Storable(..), alloca, allocaArray, peek, plusPtr, poke, pokeArray, castPtr, advancePtr)
+import Foreign (ForeignPtr, newForeignPtr, Ptr, Storable(..), alloca, allocaArray, peek,
+                plusPtr, poke, pokeArray, castPtr, advancePtr, malloc, mallocArray, FunPtr(..), free)
 import Foreign.C.Types (CInt, CLong)
 import Foreign.C.String (CString, withCString, peekCAString)
 import System.IO.Unsafe (unsafePerformIO)
@@ -115,7 +116,10 @@ foreign import ccall unsafe "c_runtime_api.h TVMArrayAlloc"
     -> IO Int
 
 foreign import ccall unsafe "c_runtime_api.h TVMArrayFree"
-  tvmArrayFree :: Ptr TVMTensor -> IO Int
+  tvmArrayFree :: Ptr TVMTensor -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMArrayFree"
+  tvmArrayFree_ :: FunPtr (Ptr TVMTensor -> IO ())
 
 
 
@@ -140,6 +144,7 @@ instance TVMElemType Int32 where tvmTypeCode = KDLInt; tvmTypeBits = 32; tvmType
 instance TVMElemType Float where tvmTypeCode = KDLFloat; tvmTypeBits = 32; tvmTypeLanes = 1
 instance TVMElemType Word64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
 
+-- | Data source. @d@ is type of data, @i@ is a type of index, @e@ is a type of element
 class (TVMIndex i, TVMElemType e) => TVMData d i e | d -> i, d -> e where
   tvmIShape :: d -> [Integer]
   tvmIndex :: d -> i -> IO e
@@ -175,6 +180,39 @@ tvmDataDims = ilength . tvmDataShape
 --tvmDataTypeCode _ = tvmTypeCode (Proxy :: Proxy e)
 
 
+newTensor :: forall d i e b . (TVMData d i e)
+          => d                           -- ^ TvmData tensor-like object
+          -> TVMDeviceType               -- ^ Device type
+          -> TVMDeviceId                 -- ^ Device ID
+          -> IO (ForeignPtr TVMTensor)
+newTensor d dt did =
+  let
+    shape = map fromInteger $ tvmDataShape d
+    ndim = fromInteger $ tvmDataDims d
+  in do
+  pt <- malloc
+  r <- allocaArray ndim $ \pshape -> do
+         pokeArray pshape shape
+         tvmArrayAlloc
+            pshape ndim
+            (fromEnum $ tvmTypeCode @e)
+            (fromInteger $ tvmTypeBits @e)
+            (fromInteger $ tvmTypeLanes @e)
+            (fromEnum dt)
+            did pt
+  case r of
+    0 -> do
+      {- Copying data from TVMData d-}
+      pdata <- {# get DLTensor->data #} pt
+      tvmPoke d (castPtr pdata)
+      newForeignPtr tvmArrayFree_ pt
+    e -> throwIO (TVMAllocFailed e)
+
+
+
+
+
+
 withTensorInput :: forall d i e b . (TVMData d i e)
               => d                           -- ^ TvmData tensor-like object
               -> TVMDeviceType               -- ^ Device type
@@ -186,7 +224,6 @@ withTensorInput d dt did f = do
     let
       shape = map fromInteger $ tvmDataShape d
       ndim = fromInteger $ tvmDataDims d
-      nels = foldr1 (*) shape
     in
     allocaArray ndim $ \pshape -> do
       pokeArray pshape shape
@@ -205,7 +242,7 @@ withTensorInput d dt did f = do
           tvmPoke d (castPtr pdata)
           {- Calling user handler -}
           b <- f ptensor
-          r <- tvmArrayFree ptensor
+          r2 <- tvmArrayFree ptensor
           case r of
             0 -> return b
             e -> throwIO (TVMFreeFailed e)
@@ -221,7 +258,6 @@ withTensorOutput shape dt did f = do
   alloca $ \ptensor ->
     let
       ndim = length shape
-      nels = foldr1 (*) shape
     in
     allocaArray ndim $ \pshape -> do
       pokeArray pshape (map (fromInteger . toInteger) shape)
@@ -243,7 +279,7 @@ withTensorOutput shape dt did f = do
           r <- tvmArrayFree ptensor
           case r of
             0 -> return (d,b)
-            e -> throwIO (TVMFreeFailed e)
+            e -> throwIO (TVMFreeFailed $ fromInteger $ toInteger e)
         e -> throwIO (TVMAllocFailed e)
 
 foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
