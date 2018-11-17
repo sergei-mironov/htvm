@@ -9,7 +9,7 @@ import qualified Data.Text.IO as Text
 
 import Text.Show.Pretty(ppShow)
 import Data.Text (Text)
-import Debug.Trace (traceM)
+import Debug.Trace (traceM, traceShowM)
 import Data.Foldable (Foldable)
 
 tshow :: (Show a) => a -> Text

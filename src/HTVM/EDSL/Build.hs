@@ -15,11 +15,11 @@ import HTVM.EDSL.Printer
 prettyCpp :: Text -> IO Text
 prettyCpp t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 
--- | Compile the model, obtain the generator binary
-compileGen :: FilePath -> Library -> IO ()
-compileGen fp lib = do
+-- | Compile TVM model, the binary will be placed to file @fp@
+compileGen :: FilePath -> CppProgram -> IO ()
+compileGen fp (CppProgram code) = do
   (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "c++", "-", "-ltvm", "-o", fp] =<< do
-    tunpack <$> prettyCpp (printProgram lib)
+    tunpack <$> prettyCpp code
   hPutStr stderr err
   hPutStr stdout out
   case ec of
@@ -28,8 +28,8 @@ compileGen fp lib = do
     ExitSuccess -> do
       return ()
 
--- | Execute the generator, return the Assembly string for `compileModel`
-stage :: FilePath -> IO String
+-- | Execute the Model generator, return the Assembly string, suitable for `compileModel`
+stage :: FilePath -> IO Assembly
 stage fp =
   let
     exec_fp = if isAbsolute fp then fp else "./" <> fp
@@ -40,11 +40,11 @@ stage fp =
     ExitFailure ec -> do
       error $ "stage failed, exit code " <> show ec
     ExitSuccess -> do
-      return out
+      return (Assembly out)
 
--- | Produce the model from Assembly< see `stage`.
-compileModel :: FilePath -> String -> IO ()
-compileModel fp asm = do
+-- | Produce the model from the Assembly, see `stage`.
+compileModel :: FilePath -> Assembly -> IO ()
+compileModel fp (Assembly asm) = do
   (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "assembler", "-shared", "-fPIC", "-o", fp, "-"] asm
   hPutStr stderr err
   hPutStr stdout out
@@ -54,7 +54,7 @@ compileModel fp asm = do
     ExitSuccess -> do
       return ()
 
--- | Build module @modname@ from EDSL library definition.
+-- | Build TVM module @modname@ from EDSL definition.
 -- This function executes @g++@ compiler and @clang-format@ prettifier which
 -- should present in @PATH@. The environment should contain all the settings
 -- required for including TVM headers and linking with TVM library.
@@ -65,12 +65,12 @@ compileModel fp asm = do
 --     TVM headers
 --   - @LIBRARY_PATH@, @LD_LIBRARY_PATH@ to contain paths to folder with TVM
 --     shared libraries
-buildModule :: FilePath -> Library -> IO ()
-buildModule fp l =
+buildModule :: FilePath -> Module -> IO ()
+buildModule fp m =
   let
     fgen = fp<>".gen"
   in do
-  compileGen fgen l
+  compileGen fgen (printModuleGen m)
   asm <- stage fgen
   compileModel fp asm
 

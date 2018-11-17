@@ -10,13 +10,13 @@ main :: IO ()
 main = do
   return ()
 
-demo1 :: IO Library
+demo1 :: IO Module
 demo1 =
-  stageLibrary $ do
+  stageModule $ do
     n <- dimvar
     s <- shapevar [10]
     x <- dimvar
-    library =<< do
+    modul =<< do
       sequence [
           function "foo" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
             s2 <- dimvar

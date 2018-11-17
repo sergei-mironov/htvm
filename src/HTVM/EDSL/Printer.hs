@@ -115,9 +115,22 @@ printTenExpr te =
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")
 
-printMain :: Text -> Text
-printMain mod =
+
+printModule:: Module -> Text
+printModule (Module te) =
   execWriter $ do
+    line $ "({"
+    line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"
+    line $ "tvm::BuildConfig config = tvm::build_config();"
+    line $ "auto target = tvm::Target::create(\"llvm\"); "
+    line $ "auto target_host = tvm::Target::create(\"llvm\");"
+    line $ "tvm::runtime::Module mod = tvm::build(funcs, target, target_host, config);"
+    line $ "mod;"
+    line $ "})"
+
+printModuleGen :: Module -> CppProgram
+printModuleGen mod =
+  CppProgram $ execWriter $ do
     line $ "#include <iostream>"
     line $ "#include <random>"
     line $ "#include <iomanip>"
@@ -142,23 +155,8 @@ printMain mod =
     line $ ""
     line $ "int main()"
     line $ "{"
-    line $ "auto mod = " <> mod <> ";"
+    line $ "auto mod = " <> printModule mod <> ";"
     line $ "std::cout << mod->GetSource(\"asm\") << std::endl;"
     line $ "}"
 
-printLibrary :: Library -> Text
-printLibrary (Library te) =
-  execWriter $ do
-    line $ "({"
-    line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"
-    line $ "tvm::BuildConfig config = tvm::build_config();"
-    line $ "auto target = tvm::Target::create(\"llvm\"); "
-    line $ "auto target_host = tvm::Target::create(\"llvm\");"
-    line $ "tvm::runtime::Module mod = tvm::build(funcs, target, target_host, config);"
-    line $ "mod;"
-    line $ "})"
-
-
-printProgram :: Library -> Text
-printProgram l = printMain (printLibrary l)
 

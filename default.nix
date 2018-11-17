@@ -31,6 +31,8 @@ let
       unordered-containers
       deriving-compat
       haskdogs
+      temporary
+      directory
     ];
 
     executableToolDepends = [ pkgs.clang_6 haskellPackages.c2hs ];

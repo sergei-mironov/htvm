@@ -154,10 +154,15 @@ type Placeholder = (Text,Type,ShapeExpr)
 newtype Function = Function { unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
-newtype Library = Library { unLibrary :: TenExpr }
+newtype Module = Module { unModule :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
 
+data CppProgram = CppProgram Text
+  deriving(Show,Read,Eq,Ord)
+
+data Assembly = Assembly String
+  deriving(Show,Read,Eq,Ord)
 
 
 

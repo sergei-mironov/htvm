@@ -76,9 +76,9 @@ stageStmt :: (Monad m) => StmtT m TenExpr -> m TenExpr
 stageStmt s = stage <$> runStmtT initStmtCtx s where
   stage (te,StmtCtx{..}) = sc_expr te
 
-stageLibrary :: (Monad m) => StmtT m Library -> m Library
-stageLibrary s = stage <$> runStmtT initStmtCtx s where
-  stage (Library te,StmtCtx{..}) = Library $ sc_expr te
+stageModule :: (Monad m) => StmtT m Module -> m Module
+stageModule s = stage <$> runStmtT initStmtCtx s where
+  stage (Module te,StmtCtx{..}) = Module $ sc_expr te
 
 assign_ :: (Monad m) => Pattern -> TenExpr -> StmtT m ()
 assign_ p te1 = do
@@ -129,10 +129,10 @@ shapevar de = do
   n <- assignN PShape "shape" (TenShape (foldr1 ShapeSum (map ShapeVector de)))
   return (ShapeId (toInteger $ length de) n)
 
-library :: (Monad m) => [Function] -> StmtT m Library
-library fns = do
+modul :: (Monad m) => [Function] -> StmtT m Module
+modul fns = do
   n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))
-  return $ Library (TenId n)
+  return $ Module (TenId n)
 
 
 class Sliceable a b c | a->c, b->c, a->b where

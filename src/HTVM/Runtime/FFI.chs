@@ -28,8 +28,11 @@ import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Bits (FiniteBits(..),(.&.),shiftR)
 import Data.Tuple (swap)
 import Data.Text (Text)
-import Foreign (ForeignPtr, newForeignPtr, Ptr, Storable(..), alloca, allocaArray, peek,
-                plusPtr, poke, pokeArray, castPtr, advancePtr, malloc, mallocArray, FunPtr(..), free)
+import Data.List (nub)
+import Foreign (ForeignPtr, newForeignPtr, Ptr, Storable(..), alloca,
+                allocaArray, peek, plusPtr, poke, peekArray, pokeArray,
+                castPtr, advancePtr, malloc, mallocArray, FunPtr(..), free,
+                withForeignPtr)
 import Foreign.C.Types (CInt, CLong)
 import Foreign.C.String (CString, withCString, peekCAString)
 import System.IO.Unsafe (unsafePerformIO)
@@ -75,13 +78,20 @@ instance Storable TVMContext where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
-data TVMTensor
+-- | Tensor representation, see `DLTensor`
+data TVMTensor_Repr
 
-instance Storable TVMTensor where
+instance Storable TVMTensor_Repr where
   sizeOf _ = {# sizeof DLTensor #}
   alignment _ = {# alignof DLTensor #}
   peek = error "peek undefined"
   poke = error "poke undefined"
+
+-- | Alias for `TVMArrayHandle`
+type TVMArrayHandle = Ptr TVMTensor_Repr
+type TVMTensor = ForeignPtr TVMTensor_Repr
+
+
 
 data TVMValue
 
@@ -94,10 +104,11 @@ instance Storable TVMValue where
 type TVMModule = Ptr ()
 type TVMFunction = Ptr ()
 
-setTensor :: Ptr TVMTensor -> Ptr TVMValue -> Ptr TVMTypeCode -> IO ()
-setTensor pt pv pc = do
-  poke pc KArrayHandle
-  {# set TVMValue.v_handle #} pv (castPtr pt)
+setTensor :: TVMTensor -> Ptr TVMValue -> Ptr TVMTypeCode -> IO ()
+setTensor ft pv pc = do
+  withForeignPtr ft $ \pt -> do
+    poke pc KArrayHandle
+    {# set TVMValue.v_handle #} pv (castPtr pt)
 
 -- setStr :: String -> Ptr TVMValue -> Ptr TVMTypeCode -> IO ()
 -- setStr s pv pc = undefined
@@ -106,20 +117,21 @@ foreign import ccall unsafe "c_runtime_api.h TVMArrayAlloc"
   tvmArrayAlloc
     :: Ptr TVMShapeIndex
                      -- shape
-    -> Int           -- ndim,
-    -> Int           -- dtype_code,
-    -> Int           -- dtype_bits,
-    -> Int           -- dtype_lanes,
-    -> Int           -- device_type,
-    -> Int           -- device_id,
-    -> Ptr TVMTensor -- DLTensor* out
-    -> IO Int
+    -> CInt           -- ndim,
+    -> CInt           -- dtype_code,
+    -> CInt           -- dtype_bits,
+    -> CInt           -- dtype_lanes,
+    -> CInt           -- device_type,
+    -> CInt           -- device_id,
+    -> Ptr TVMArrayHandle
+                      -- DLTensor* out
+    -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMArrayFree"
-  tvmArrayFree :: Ptr TVMTensor -> IO CInt
+  tvmArrayFree :: TVMArrayHandle -> IO CInt
 
-foreign import ccall unsafe "c_runtime_api.h TVMArrayFree"
-  tvmArrayFree_ :: FunPtr (Ptr TVMTensor -> IO ())
+foreign import ccall unsafe "c_runtime_api.h &TVMArrayFree"
+  tvmArrayFree_ :: FunPtr (TVMArrayHandle -> IO ())
 
 
 
@@ -141,84 +153,166 @@ class TVMElemType e where
   tvmTypeLanes :: Integer
 
 instance TVMElemType Int32 where tvmTypeCode = KDLInt; tvmTypeBits = 32; tvmTypeLanes = 1
+instance TVMElemType Word32 where tvmTypeCode = KDLUInt; tvmTypeBits = 32; tvmTypeLanes = 1
 instance TVMElemType Float where tvmTypeCode = KDLFloat; tvmTypeBits = 32; tvmTypeLanes = 1
+instance TVMElemType Int64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
 instance TVMElemType Word64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
+instance TVMElemType Double where tvmTypeCode = KDLFloat; tvmTypeBits = 64; tvmTypeLanes = 1
 
 -- | Data source. @d@ is type of data, @i@ is a type of index, @e@ is a type of element
 class (TVMIndex i, TVMElemType e) => TVMData d i e | d -> i, d -> e where
   tvmIShape :: d -> [Integer]
   tvmIndex :: d -> i -> IO e
-  tvmPeek :: Ptr e -> IO d
+  tvmPeek :: [Integer] -> Ptr e -> IO d
   tvmPoke :: d -> Ptr e -> IO ()
+  -- ^ Write the contents of data to dense memory area.
+  -- TODO: figure out the alignment restirctions.
 
 instance (Storable e, Array.Ix i, TVMIndex i, TVMElemType e) => TVMData (Array i e) i e where
   tvmIShape = map (uncurry (-)) . uncurry zip . (tvmList *** tvmList) . Array.bounds
   tvmIndex d i = pure $ d Array.! i
   tvmPoke d ptr = pokeArray ptr (Array.elems d)
+  tvmPeek shape ptr = error "peek is undefined for Arrays"
 
 tvmIShape1 d = [ilength d]
 tvmIndex1 l i = pure $ l !! (fromInteger i)
 tvmPoke1 d ptr = pokeArray ptr d
-instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1
-instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1
-instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1
+tvmPeek1 [x] ptr = peekArray (fromInteger x) ptr
+tvmPeek1 _ ptr = error "tvmPeek1 should be called with single-element shape"
+instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Word32] Integer Word32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Int64] Integer Int64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Double] Integer Double where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
 
+tvmIShape2 [] = [0,0]
 tvmIShape2 d = [ilength d, ilength (head d)]
 tvmIndex2 l (r,c) = pure $ l !! (fromInteger r) !! (fromInteger c)
-tvmPoke2 d ptr = pokeArray ptr (concat d)
-instance TVMData [[Float]] (Integer,Integer) Float where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2
-instance TVMData [[Int32]] (Integer,Integer) Int32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2
-instance TVMData [[Word64]] (Integer,Integer) Word64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2
+tvmPoke2 d ptr
+  | length d == 0 = pokeArray ptr (concat d)
+  | length (nub (map length d)) == 1 = pokeArray ptr (concat d)
+  | otherwise = error "All elements should have the same length"
+tvmPeek2 [0,0] ptr = pure []
+tvmPeek2 [x,y] ptr = group y <$>  peekArray (fromInteger $ x*y) ptr where
+  group :: Integer -> [a] -> [[a]]
+  group _ [] = []
+  group n l
+    | n > 0 = (take (fromInteger n) l) : (group n (drop (fromInteger n) l))
+    | otherwise = error "Negative n"
+tvmPeek2 x _ = error "tvmPeek2 should be called with 2-element shape"
+instance TVMData [[Int32]] (Integer,Integer) Int32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2; tvmPeek = tvmPeek2
+instance TVMData [[Word32]] (Integer,Integer) Word32 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2; tvmPeek = tvmPeek2
+instance TVMData [[Float]] (Integer,Integer) Float where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2; tvmPeek = tvmPeek2
+instance TVMData [[Int64]] (Integer,Integer) Int64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2; tvmPeek = tvmPeek2
+instance TVMData [[Word64]] (Integer,Integer) Word64 where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2; tvmPeek = tvmPeek2
+instance TVMData [[Double]] (Integer,Integer) Double where tvmIShape = tvmIShape2 ; tvmIndex = tvmIndex2; tvmPoke = tvmPoke2; tvmPeek = tvmPeek2
 
 tvmDataShape :: (TVMData d i e) => d -> [Integer]
 tvmDataShape = tvmIShape
 
-tvmDataDims :: (TVMData d i e) => d -> Integer
-tvmDataDims = ilength . tvmDataShape
+tvmDataNDim :: (TVMData d i e) => d -> Integer
+tvmDataNDim = ilength . tvmDataShape
 
---tvmDataTypeCode :: forall d i e . (TVMData d i e) => d -> TVMDataTypeCode
---tvmDataTypeCode _ = tvmTypeCode (Proxy :: Proxy e)
+toCInt :: (Integral x) => x -> CInt
+toCInt = fromInteger . toInteger
 
+fromCInt :: (Integral x) => CInt -> x
+fromCInt = fromInteger . toInteger
 
-newTensor :: forall d i e b . (TVMData d i e)
-          => d                           -- ^ TvmData tensor-like object
-          -> TVMDeviceType               -- ^ Device type
-          -> TVMDeviceId                 -- ^ Device ID
-          -> IO (ForeignPtr TVMTensor)
-newTensor d dt did =
+tensorDevice :: TVMTensor -> TVMDeviceType
+tensorDevice ft = unsafePerformIO $ do
+  withForeignPtr ft $ \pt -> do
+    (toEnum . fromCInt) <$> {# get DLTensor->ctx.device_type #} pt
+
+tensorNDim :: TVMTensor -> Integer
+tensorNDim ft = unsafePerformIO $ do
+  withForeignPtr ft $ \pt -> do
+    toInteger <$> {# get DLTensor->ndim #} pt
+
+{-
+tensorNDimM :: TVMTensor -> IO Integer
+tensorNDimM ft = do
+  withForeignPtr ft $ \pt -> do
+    toInteger <$> {# get DLTensor->ndim #} pt
+-}
+
+tensorShape :: TVMTensor -> [Integer]
+tensorShape ft = unsafePerformIO $ do
+  withForeignPtr ft $ \pt -> do
+    map toInteger <$> do
+      peekArray (fromInteger $ tensorNDim ft) =<< {# get DLTensor->shape #} pt
+
+-- | FIXME: non-CPU devices will not work, see FIXME in `pokeTensor`
+newEmptyTensor :: forall e . (TVMElemType e)
+  => [Integer]                   -- ^ Shape
+  -> TVMDeviceType               -- ^ Device type (CPU|GPU|etc)
+  -> TVMDeviceId                 -- ^ Device ID
+  -> IO TVMTensor
+newEmptyTensor shape dt did =
   let
-    shape = map fromInteger $ tvmDataShape d
-    ndim = fromInteger $ tvmDataDims d
+    ndim = length shape
   in do
-  pt <- malloc
-  r <- allocaArray ndim $ \pshape -> do
-         pokeArray pshape shape
-         tvmArrayAlloc
-            pshape ndim
-            (fromEnum $ tvmTypeCode @e)
-            (fromInteger $ tvmTypeBits @e)
-            (fromInteger $ tvmTypeLanes @e)
-            (fromEnum dt)
-            did pt
-  case r of
-    0 -> do
-      {- Copying data from TVMData d-}
-      pdata <- {# get DLTensor->data #} pt
-      tvmPoke d (castPtr pdata)
-      newForeignPtr tvmArrayFree_ pt
-    e -> throwIO (TVMAllocFailed e)
+  alloca $ \pt -> do
+  allocaArray ndim $ \pshape -> do
+    pokeArray pshape (map (fromInteger . toInteger) shape)
+    r <-
+      tvmArrayAlloc
+         pshape
+         (fromInteger $ toInteger $ ndim)
+         (toCInt $ fromEnum $ tvmTypeCode @e)
+         (toCInt $ tvmTypeBits @e)
+         (toCInt $ tvmTypeLanes @e)
+         (toCInt $ fromEnum dt)
+         (toCInt $ did) pt
+    case r of
+      0 -> peek pt >>= newForeignPtr tvmArrayFree_
+      e -> throwIO (TVMAllocFailed (fromCInt e))
+
+newTensor :: forall d i e . (TVMData d i e)
+  => d                           -- ^ TvmData tensor-like object
+  -> TVMDeviceType               -- ^ Device type
+  -> TVMDeviceId                 -- ^ Device ID
+  -> IO TVMTensor
+newTensor d dt did = do
+  ft <- newEmptyTensor @e (map fromInteger $ tvmDataShape d) dt did
+  withForeignPtr ft $ \pt -> do
+    pdata <- {# get DLTensor->data #} pt
+    tvmPoke d (castPtr pdata)
+  return ft
 
 
+peekTensor :: forall d i e b . (TVMData d i e)
+  => TVMTensor -> IO d
+peekTensor ft = do
+  withForeignPtr ft $ \pt -> do
+    case tensorDevice ft of
+      KDLCPU -> do
+        pdata <- {# get DLTensor->data #} pt
+        tvmPeek (tensorShape ft) (castPtr pdata)
+      x -> do
+        fail "Not implemented"
 
+pokeTensor :: forall d i e b . (TVMData d i e)
+  => TVMTensor -> d -> IO ()
+pokeTensor ft d = do
+  withForeignPtr ft $ \pt -> do
+    case tensorDevice ft of
+      KDLCPU -> do
+        pdata <- {# get DLTensor->data #} pt
+        {- FIXME: Use CopyFromBytes for non-CPU devices -}
+        tvmPoke d (castPtr pdata)
+      x -> do
+        fail "Not implemented"
 
-
-
+{-
+-- deprecated
 withTensorInput :: forall d i e b . (TVMData d i e)
-              => d                           -- ^ TvmData tensor-like object
-              -> TVMDeviceType               -- ^ Device type
-              -> TVMDeviceId                 -- ^ Device ID
-              -> (Ptr TVMTensor -> IO b)     -- ^ Handler funtion
-              -> IO b
+  => d                           -- ^ TvmData tensor-like object
+  -> TVMDeviceType               -- ^ Device type
+  -> TVMDeviceId                 -- ^ Device ID
+  -> (Ptr TVMTensor -> IO b)     -- ^ Handler funtion
+  -> IO b
 withTensorInput d dt did f = do
   alloca $ \ptensor ->
     let
@@ -228,12 +322,12 @@ withTensorInput d dt did f = do
     allocaArray ndim $ \pshape -> do
       pokeArray pshape shape
       r <- tvmArrayAlloc
-              pshape ndim
-              (fromEnum $ tvmTypeCode @e)
+              pshape (toCInt ndim)
+              (toCInt $ fromEnum $ tvmTypeCode @e)
               (fromInteger $ tvmTypeBits @e)
               (fromInteger $ tvmTypeLanes @e)
-              (fromEnum dt)
-              did
+              (toCInt $ fromEnum dt)
+              (toCInt $ did)
               ptensor
       case r of
         0 -> do
@@ -243,17 +337,17 @@ withTensorInput d dt did f = do
           {- Calling user handler -}
           b <- f ptensor
           r2 <- tvmArrayFree ptensor
-          case r of
+          case r2 of
             0 -> return b
-            e -> throwIO (TVMFreeFailed e)
-        e -> throwIO (TVMAllocFailed e)
+            e -> throwIO (TVMFreeFailed (fromCInt e))
+        e -> throwIO (TVMAllocFailed (fromCInt e))
 
 withTensorOutput :: forall d i e b . (TVMData d i e)
-              => [Integer]
-              -> TVMDeviceType
-              -> TVMDeviceId
-              -> (Ptr TVMTensor -> IO b)
-              -> IO (d,b)
+  => [Integer]
+  -> TVMDeviceType
+  -> TVMDeviceId
+  -> (Ptr TVMTensor -> IO b)
+  -> IO (d,b)
 withTensorOutput shape dt did f = do
   alloca $ \ptensor ->
     let
@@ -262,12 +356,12 @@ withTensorOutput shape dt did f = do
     allocaArray ndim $ \pshape -> do
       pokeArray pshape (map (fromInteger . toInteger) shape)
       r <- tvmArrayAlloc
-              pshape ndim
-              (fromEnum $ tvmTypeCode @e)
+              pshape (toCInt ndim)
+              (toCInt $ fromEnum $ tvmTypeCode @e)
               (fromInteger $ tvmTypeBits @e)
               (fromInteger $ tvmTypeLanes @e)
-              (fromEnum dt)
-              did
+              (toCInt $ fromEnum dt)
+              (toCInt $ did)
               ptensor
       case r of
         0 -> do
@@ -275,12 +369,13 @@ withTensorOutput shape dt did f = do
           b <- f ptensor
           {- Copying data from TVMData d-}
           pdata <- {# get DLTensor->data #} ptensor
-          d <- tvmPeek (castPtr pdata)
+          d <- tvmPeek shape (castPtr pdata)
           r <- tvmArrayFree ptensor
           case r of
             0 -> return (d,b)
             e -> throwIO (TVMFreeFailed $ fromInteger $ toInteger e)
-        e -> throwIO (TVMAllocFailed e)
+        e -> throwIO (TVMAllocFailed $ fromCInt e)
+-}
 
 foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
   tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
@@ -326,6 +421,7 @@ withFunction funcname mod func =
         str <- getLastError
         throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) str)
 
+{-
 callTensorFunction :: forall d i e . (TVMData d i e) => [Integer] -> TVMFunction -> [d] -> IO d
 callTensorFunction oshape fun ts0 =
   let
@@ -350,8 +446,10 @@ callTensorFunction oshape fun ts0 =
             throwIO (TVMFunCallFailed $ fromInteger $ toInteger x)
           (0,t) -> do
             throwIO (TVMFunCallBadType $ fromEnum rt)
+          _ -> error "callTensorFunction: unexpected return code"
   in
   fst <$> go [] ts0
+-}
 
 {-
 TVM_DLL int TVMModGetFunction(TVMModuleHandle mod,
