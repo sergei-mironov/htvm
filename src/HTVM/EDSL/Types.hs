@@ -154,7 +154,7 @@ type Placeholder = (Text,Type,ShapeExpr)
 newtype Function = Function { unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
-newtype Module = Module { unModule :: TenExpr }
+data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
 data CppProgram = CppProgram Module Text

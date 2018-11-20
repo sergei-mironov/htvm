@@ -83,7 +83,7 @@ stageStmt s = stage <$> runStmtT initStmtCtx s where
 -- FIXME: Encode self-contained Modules differently.
 stageModuleT :: (Monad m) => StmtT m Module -> m Module
 stageModuleT s = stage <$> runStmtT initStmtCtx s where
-  stage (Module te,StmtCtx{..}) = Module $ sc_expr te
+  stage (Module funcs te,StmtCtx{..}) = Module funcs (sc_expr te)
 
 stageModule :: StmtT Identity Module -> Module
 stageModule = runIdentity . stageModuleT
@@ -142,7 +142,7 @@ shapevar de = do
 modul :: (Monad m) => [Function] -> StmtT m Module
 modul fns = do
   n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))
-  return $ Module (TenId n)
+  return $ Module fns (TenId n)
 
 
 class Sliceable a b c | a->c, b->c, a->b where

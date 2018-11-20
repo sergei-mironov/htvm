@@ -117,7 +117,7 @@ line x = tell (x <> "\n")
 
 
 printModule:: Module -> Text
-printModule (Module te) =
+printModule (Module _ te) =
   execWriter $ do
     line $ "({"
     line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"

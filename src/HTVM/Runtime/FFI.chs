@@ -421,6 +421,25 @@ withFunction funcname mod func =
         str <- getLastError
         throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) str)
 
+callTensorFunction :: TVMTensor -> TVMFunction -> [TVMTensor] -> IO ()
+callTensorFunction ret fun args =
+  let
+    clen = toCInt $ length args
+  in do
+  alloca $ \pvret -> do
+  alloca $ \pvretcode -> do
+  allocaArray (length args) $ \pvargs -> do
+  allocaArray (length args) $ \pvargcodes -> do
+    forM_ (args`zip`[0..(length args)-1]) $ \(farg,off) -> do
+      setTensor farg (advancePtr pvargs off) (advancePtr pvargcodes off)
+    setTensor ret pvret pvretcode
+    r <- tvmFuncCall fun pvargs pvargcodes clen pvret pvretcode
+    case r of
+      0 -> do
+        return ()
+      x -> do
+        throwIO (TVMFunCallFailed $ fromCInt x)
+
 {-
 callTensorFunction :: forall d i e . (TVMData d i e) => [Integer] -> TVMFunction -> [d] -> IO d
 callTensorFunction oshape fun ts0 =
