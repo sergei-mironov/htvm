@@ -13,6 +13,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.State
 import Control.Monad.Trans
+import Control.Monad.Identity
 import Data.Maybe (fromMaybe,fromJust)
 import Data.Text (Text)
 
@@ -45,6 +46,8 @@ initStmtCtx = StmtCtx 0 id
 newtype StmtT m a = StmtT { unStmtT :: StateT StmtCtx m a }
   deriving(Functor,Applicative,Monad,MonadTrans,MonadState StmtCtx,MonadIO)
 
+type Stmt a = StmtT Identity a
+
 name :: (Monad m) => Text -> m Name
 name = return . Name
 
@@ -76,9 +79,14 @@ stageStmt :: (Monad m) => StmtT m TenExpr -> m TenExpr
 stageStmt s = stage <$> runStmtT initStmtCtx s where
   stage (te,StmtCtx{..}) = sc_expr te
 
-stageModule :: (Monad m) => StmtT m Module -> m Module
-stageModule s = stage <$> runStmtT initStmtCtx s where
+-- | Returned module contains all its definitions.
+-- FIXME: Encode self-contained Modules differently.
+stageModuleT :: (Monad m) => StmtT m Module -> m Module
+stageModuleT s = stage <$> runStmtT initStmtCtx s where
   stage (Module te,StmtCtx{..}) = Module $ sc_expr te
+
+stageModule :: StmtT Identity Module -> Module
+stageModule = runIdentity . stageModuleT
 
 assign_ :: (Monad m) => Pattern -> TenExpr -> StmtT m ()
 assign_ p te1 = do
@@ -106,7 +114,7 @@ function n plh fbody = do
 
 -- | Version of assign where the computation rule is specified for each
 -- Tensor's item
-compute :: (MonadIO m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m TenExpr
+compute :: (Monad m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m TenExpr
 compute se ebody = do
   res <- freshP "computed"
   axis <- freshP "vars"
@@ -129,6 +137,8 @@ shapevar de = do
   n <- assignN PShape "shape" (TenShape (foldr1 ShapeSum (map ShapeVector de)))
   return (ShapeId (toInteger $ length de) n)
 
+-- | FIXME: Module returned is only valid in the context of StmtT monad's state.
+-- One should encode this fact in types
 modul :: (Monad m) => [Function] -> StmtT m Module
 modul fns = do
   n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))

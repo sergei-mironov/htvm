@@ -12,7 +12,7 @@ main = do
 
 demo1 :: IO Module
 demo1 =
-  stageModule $ do
+  stageModuleT $ do
     n <- dimvar
     s <- shapevar [10]
     x <- dimvar

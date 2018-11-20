@@ -41,11 +41,25 @@ genShape = do
   ndim <- choose (0,4)
   vectorOf ndim (choose (0,5))
 
+withTmpf :: String -> (FilePath -> IO x) -> IO x
+withTmpf nm act = do
+  tmp <- getTemporaryDirectory
+  withTempFile tmp nm $ \x _ -> act x
+
+compileTestFunction :: Stmt Function -> IO ModuleLib
+compileTestFunction mf =
+  withTmpf "htvm-test-module" $ \fp -> do
+    -- traceM $ "file: " <> fp
+    buildModule fp $
+      stageModule $ do
+        f <- mf
+        modul [f]
+
 main :: IO ()
 main = defaultMain $
     testGroup "All" [
 
-      testGroup "Uninitialized Tensor" $
+      testGroup "Uninitialized Tensor FFI should work" $
         let
           go :: forall e . TVMElemType e => [Integer] -> IO ()
           go sh = do
@@ -64,7 +78,7 @@ main = defaultMain $
         , testProperty "Double" $ (gen @Double)
         ]
 
-    , testGroup "Initiallized Tensor" $
+    , testGroup "Initiallized Tensor FFI should work" $
         let
           go :: forall d i e . (TVMData d i e, Eq e, Eq d, Show d) => d -> IO ()
           go l = do
@@ -100,13 +114,27 @@ main = defaultMain $
         ]
 
     , testCase "Compiler (g++ -ltvm) should be available" $ do
-        tmp <- getTemporaryDirectory
-        withTempFile tmp "htvm-compiler-test" $ \x _ ->
-          compileGen x (CppProgram "int main() { return 0; }")
+        withTmpf "htvm-compiler-test" $ \x -> do
+          _ <- compileModuleGen x (CppProgram undefined "int main() { return 0; }")
+          return ()
 
     , testCase "Pretty-printer (clang-format) should be available" $ do
         _ <- prettyCpp "int main() { return 0; }"
         return ()
+
+    , testCase "Simple model should work" $
+        let
+        in do
+        withTmpf "model1" $ \fp -> do
+          traceM $ "file: " <> fp
+          _ <- compileTestFunction $ do
+            s <- shapevar [10]
+            function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+              compute s $ \[i] -> a![i] + b![i]
+          -- r <- runFunction m "vecadd" [[1,2,3]] [[100,200,300]]
+          -- assertEqual r [[101,202,303]]
+          -- TODO: call function
+          return ()
 
     , testCase "FFI" $ do
         withModule "./model.so" $ \hmod -> do

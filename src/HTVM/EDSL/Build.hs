@@ -16,21 +16,21 @@ prettyCpp :: Text -> IO Text
 prettyCpp t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 
 -- | Compile TVM model, the binary will be placed to file @fp@
-compileGen :: FilePath -> CppProgram -> IO ()
-compileGen fp (CppProgram code) = do
+compileModuleGen :: FilePath -> CppProgram -> IO ModuleGen
+compileModuleGen fp (CppProgram mod code) = do
   (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "c++", "-", "-ltvm", "-o", fp] =<< do
     tunpack <$> prettyCpp code
   hPutStr stderr err
   hPutStr stdout out
   case ec of
     ExitFailure ec -> do
-      error $ "compileGen failed, exit code " <> show ec
+      error $ "compileModuleGen failed, exit code " <> show ec
     ExitSuccess -> do
-      return ()
+      return (ModuleGen fp mod)
 
 -- | Execute the Model generator, return the Assembly string, suitable for `compileModel`
-stage :: FilePath -> IO Assembly
-stage fp =
+stage :: ModuleGen -> IO Assembly
+stage (ModuleGen fp mod) =
   let
     exec_fp = if isAbsolute fp then fp else "./" <> fp
   in do
@@ -40,24 +40,24 @@ stage fp =
     ExitFailure ec -> do
       error $ "stage failed, exit code " <> show ec
     ExitSuccess -> do
-      return (Assembly out)
+      return (Assembly mod out)
 
 -- | Produce the model from the Assembly, see `stage`.
-compileModel :: FilePath -> Assembly -> IO ()
-compileModel fp (Assembly asm) = do
-  (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "assembler", "-shared", "-fPIC", "-o", fp, "-"] asm
+compileModel :: FilePath -> Assembly -> IO ModuleLib
+compileModel fp asm@(Assembly mod a) = do
+  (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "assembler", "-shared", "-fPIC", "-o", fp, "-"] a
   hPutStr stderr err
   hPutStr stdout out
   case ec of
     ExitFailure ec -> do
       error $ "compileModel failed, exit code " <> show ec
     ExitSuccess -> do
-      return ()
+      return (ModuleLib fp mod)
 
 -- | Build TVM module @modname@ from EDSL definition.
--- This function executes @g++@ compiler and @clang-format@ prettifier which
--- should present in @PATH@. The environment should contain all the settings
--- required for including TVM headers and linking with TVM library.
+-- This function executes @g++@ compiler and @clang-format@ pretty-printer. The
+-- environment should contain all the settings required for including TVM
+-- headers and linking with TVM library.
 --
 -- In particular, consider reviewing the following variables:
 --   - @PATH@ to contain paths to @g++@ and @clang-format@ binaries
@@ -65,12 +65,12 @@ compileModel fp (Assembly asm) = do
 --     TVM headers
 --   - @LIBRARY_PATH@, @LD_LIBRARY_PATH@ to contain paths to folder with TVM
 --     shared libraries
-buildModule :: FilePath -> Module -> IO ()
+buildModule :: FilePath -> Module -> IO ModuleLib
 buildModule fp m =
   let
     fgen = fp<>".gen"
   in do
-  compileGen fgen (printModuleGen m)
-  asm <- stage fgen
+  mgen <- compileModuleGen fgen (printModuleGen m)
+  asm <- stage mgen
   compileModel fp asm
 

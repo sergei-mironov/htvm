@@ -130,7 +130,7 @@ printModule (Module te) =
 
 printModuleGen :: Module -> CppProgram
 printModuleGen mod =
-  CppProgram $ execWriter $ do
+  CppProgram mod $ execWriter $ do
     line $ "#include <iostream>"
     line $ "#include <random>"
     line $ "#include <iomanip>"

@@ -157,12 +157,18 @@ newtype Function = Function { unFunction :: TenExpr }
 newtype Module = Module { unModule :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
-
-data CppProgram = CppProgram Text
+data CppProgram = CppProgram Module Text
   deriving(Show,Read,Eq,Ord)
 
-data Assembly = Assembly String
+data ModuleGen = ModuleGen FilePath Module
   deriving(Show,Read,Eq,Ord)
+
+data Assembly = Assembly Module String
+  deriving(Show,Read,Eq,Ord)
+
+data ModuleLib = ModuleLib FilePath Module
+  deriving(Show,Read,Eq,Ord)
+
 
 
 
