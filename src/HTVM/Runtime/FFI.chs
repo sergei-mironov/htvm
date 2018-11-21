@@ -45,7 +45,7 @@ data TVMError =
   | TVMFreeFailed Int
   | TVMModLoadFailed Int String
   | TVMFuncLoadFailed Int String
-  | TVMFunCallFailed Int
+  | TVMFunCallFailed Int String
   | TVMFunCallBadType Int
   deriving(Show,Read,Ord,Eq)
 
@@ -395,10 +395,10 @@ getLastError = peekCAString =<< tvmGetLastError
 -- | Load module from 'so' dynamic library
 -- TODO: Unload the module
 -- TODO: Pass GetLastError in case of failure
-withModule :: Text -> (TVMModule -> IO b) -> IO b
+withModule :: FilePath -> (TVMModule -> IO b) -> IO b
 withModule modname func =
   alloca $ \pmod -> do
-  withCString (tunpack modname) $ \cmodname -> do
+  withCString modname $ \cmodname -> do
   withCString "so" $ \so -> do
     r <- tvmModLoadFromFile cmodname so pmod
     case r of
@@ -424,7 +424,7 @@ withFunction funcname mod func =
 callTensorFunction :: TVMTensor -> TVMFunction -> [TVMTensor] -> IO ()
 callTensorFunction ret fun args =
   let
-    clen = toCInt $ length args
+    clen = 1 {- Result is also counts -} + toCInt (length args)
   in do
   alloca $ \pvret -> do
   alloca $ \pvretcode -> do
@@ -438,7 +438,8 @@ callTensorFunction ret fun args =
       0 -> do
         return ()
       x -> do
-        throwIO (TVMFunCallFailed $ fromCInt x)
+        str <- getLastError
+        throwIO (TVMFunCallFailed (fromCInt x) str)
 
 {-
 callTensorFunction :: forall d i e . (TVMData d i e) => [Integer] -> TVMFunction -> [d] -> IO d

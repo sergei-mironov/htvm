@@ -46,14 +46,15 @@ withTmpf nm act = do
   tmp <- getTemporaryDirectory
   withTempFile tmp nm $ \x _ -> act x
 
-compileTestFunction :: Stmt Function -> IO ModuleLib
-compileTestFunction mf =
+withTestModule :: Stmt Function -> (ModuleLib -> IO b) -> IO b
+withTestModule mf act =
   withTmpf "htvm-test-module" $ \fp -> do
-    -- traceM $ "file: " <> fp
-    buildModule fp $
-      stageModule $ do
-        f <- mf
-        modul [f]
+    {- traceM $ "file: " <> fp -}
+    act =<< do
+      buildModule fp $
+        stageModule $ do
+          f <- mf
+          modul [f]
 
 main :: IO ()
 main = defaultMain $
@@ -124,16 +125,29 @@ main = defaultMain $
 
     , testCase "Simple model should work" $
         let
+          dim0 = 10 :: Integer
+          fname = "vecadd"
         in do
         withTmpf "model1" $ \fp -> do
           traceM $ "file: " <> fp
-          _ <- compileTestFunction $ do
-            s <- shapevar [10]
-            function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+          withTestModule (do
+            s <- shapevar [fromInteger dim0]
+            function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
               compute s $ \[i] -> a![i] + b![i]
-          -- r <- runFunction m "vecadd" [[1,2,3]] [[100,200,300]]
-          -- assertEqual r [[101,202,303]]
-          -- TODO: call function
+            ) $ \(ModuleLib p _) -> do
+                withModule p $ \hmod -> do
+                withFunction fname hmod $ \fmod -> do
+                -- withTensorInput ([1.0, 2.0, 3.0, 4.0] :: [Float]) KDLCPU 0 $ \_ -> do
+                  tputStrLn $ "Entered " <> tpack p
+                  a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
+                  b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
+                  c <- newEmptyTensor @Float [dim0] KDLCPU 0
+                  callTensorFunction c fmod [a,b]
+                  tputStrLn =<< tshow <$> peekTensor @[Float] c
+
+              -- r <- runFunction m "vecadd" [[1,2,3]] [[100,200,300]]
+              -- assertEqual r [[101,202,303]]
+              -- TODO: call function
           return ()
 
     , testCase "FFI" $ do

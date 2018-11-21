@@ -65,6 +65,8 @@ compileModel fp asm@(Assembly mod a) = do
 --     TVM headers
 --   - @LIBRARY_PATH@, @LD_LIBRARY_PATH@ to contain paths to folder with TVM
 --     shared libraries
+--
+--  FIXME: Remove modulegen after usage
 buildModule :: FilePath -> Module -> IO ModuleLib
 buildModule fp m =
   let
