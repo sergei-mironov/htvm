@@ -424,15 +424,17 @@ withFunction funcname mod func =
 callTensorFunction :: TVMTensor -> TVMFunction -> [TVMTensor] -> IO ()
 callTensorFunction ret fun args =
   let
-    clen = 1 {- Result is also counts -} + toCInt (length args)
+    nargs = length args + 1 {- Result is also counts -}
+    clen = toCInt nargs
   in do
   alloca $ \pvret -> do
   alloca $ \pvretcode -> do
-  allocaArray (length args) $ \pvargs -> do
-  allocaArray (length args) $ \pvargcodes -> do
-    forM_ (args`zip`[0..(length args)-1]) $ \(farg,off) -> do
-      setTensor farg (advancePtr pvargs off) (advancePtr pvargcodes off)
-    setTensor ret pvret pvretcode
+  allocaArray nargs $ \pvargs -> do
+  allocaArray nargs $ \pvargcodes -> do
+    forM_ ((args<>[ret])`zip`[0..nargs-1]) $ \(farg,off) -> do
+      case off < length args of
+        True -> setTensor farg (advancePtr pvargs off) (advancePtr pvargcodes off)
+        False -> setTensor ret (advancePtr pvargs off) (advancePtr pvargcodes off)
     r <- tvmFuncCall fun pvargs pvargcodes clen pvret pvretcode
     case r of
       0 -> do

@@ -39,6 +39,7 @@ Log
 #### 21.11.2018
  * Re-implement callTensorFunction
  * Module now contains information about its functions
+ * FFI function call works!
 
 #### 15.11.2018
  * Update callTensorFunction, still work in progress. DLTensor -> DLValue
