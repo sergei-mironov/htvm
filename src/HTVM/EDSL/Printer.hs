@@ -128,9 +128,8 @@ printModule (Module _ te) =
     line $ "mod;"
     line $ "})"
 
-printModuleGen :: Module -> CppProgram
-printModuleGen mod =
-  CppProgram mod $ execWriter $ do
+printIncludes :: Writer Text ()
+printIncludes = do
     line $ "#include <iostream>"
     line $ "#include <random>"
     line $ "#include <iomanip>"
@@ -153,10 +152,27 @@ printModuleGen mod =
         \   return res;\
         \ }"
     line $ ""
+
+
+printModuleGen :: Module -> ModuleGenSrc
+printModuleGen mod =
+  ModuleGenSrc mod $ execWriter $ do
+    printIncludes
     line $ "int main()"
     line $ "{"
     line $ "auto mod = " <> printModule mod <> ";"
     line $ "std::cout << mod->GetSource(\"asm\") << std::endl;"
+    line $ "}"
+
+
+printPrinter :: TenExpr -> ProgramSrc
+printPrinter te =
+  ProgramSrc $ execWriter $ do
+    printIncludes
+    line $ "int main()"
+    line $ "{"
+    line $ "auto te = ({" <> printTenExpr te <> "; });"
+    line $ "std::cout << te->body << std::endl;"
     line $ "}"
 
 

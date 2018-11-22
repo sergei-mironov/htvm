@@ -135,7 +135,9 @@ data TenExpr =
   | TenShape ShapeExpr
   | TenAxis Axis
   | TenCompute ShapeExpr Pattern Expr
-  | TenDef Text TenExpr                 -- ^ FIXME: TenDef would be redundant
+  | TenDef Text TenExpr                 -- ^ Name and Expression of function
+                                        --   definition.
+                                        --   FIXME: TenDef would be redundant
                                         --   in the presence of typechecker.
   | TenCall { tc_fname::Name, tc_attrs::Args, tc_args::[TenExpr] }
                                         -- ^ Function call. `tc_fname` is the
@@ -157,7 +159,13 @@ newtype Function = Function { unFunction :: TenExpr }
 data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
-data CppProgram = CppProgram Module Text
+data ModuleGenSrc = ModuleGenSrc Module Text
+  deriving(Show,Read,Eq,Ord)
+
+data ProgramSrc = ProgramSrc Text
+  deriving(Show,Read,Eq,Ord)
+
+data ProgramBin = ProgramBin FilePath
   deriving(Show,Read,Eq,Ord)
 
 data ModuleGen = ModuleGen FilePath Module

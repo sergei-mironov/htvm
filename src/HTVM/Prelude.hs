@@ -11,6 +11,8 @@ import Text.Show.Pretty(ppShow)
 import Data.Text (Text)
 import Debug.Trace (traceM, traceShowM)
 import Data.Foldable (Foldable)
+import System.Directory (getTemporaryDirectory)
+import System.IO.Temp (withTempFile)
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show
@@ -30,4 +32,7 @@ twriteFile s f = Text.writeFile s f
 ilength :: Foldable t => t a -> Integer
 ilength = toInteger . length
 
-
+withTmpf :: String -> (FilePath -> IO x) -> IO x
+withTmpf nm act = do
+  tmp <- getTemporaryDirectory
+  withTempFile tmp nm $ \x _ -> act x

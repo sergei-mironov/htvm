@@ -75,9 +75,12 @@ scope m = do
   -- traceM $ ppShow $ (sc_expr ctx1) te
   return $ (sc_expr ctx1) te
 
-stageStmt :: (Monad m) => StmtT m TenExpr -> m TenExpr
-stageStmt s = stage <$> runStmtT initStmtCtx s where
+stageTenExpr :: (Monad m) => StmtT m TenExpr -> m TenExpr
+stageTenExpr s = stage <$> runStmtT initStmtCtx s where
   stage (te,StmtCtx{..}) = sc_expr te
+
+stageFunction :: (Monad m) => StmtT m Function -> m Function
+stageFunction fe = Function <$> stageTenExpr (unFunction <$> fe)
 
 -- | Returned module contains all its definitions.
 -- FIXME: Encode self-contained Modules differently.

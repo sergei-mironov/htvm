@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module HTVM.EDSL.Build where
 
 import Data.Text(Text)
@@ -15,18 +16,26 @@ import HTVM.EDSL.Printer
 prettyCpp :: Text -> IO Text
 prettyCpp t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 
--- | Compile TVM model, the binary will be placed to file @fp@
-compileModuleGen :: FilePath -> CppProgram -> IO ModuleGen
-compileModuleGen fp (CppProgram mod code) = do
+-- | Compile TVM program, the binary will be placed to file @fp@
+compileProgram :: FilePath -> ProgramSrc -> IO ProgramBin
+compileProgram fp (ProgramSrc code) = do
+  {- traceM (tunpack code) -}
   (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "c++", "-", "-ltvm", "-o", fp] =<< do
     tunpack <$> prettyCpp code
   hPutStr stderr err
   hPutStr stdout out
   case ec of
     ExitFailure ec -> do
-      error $ "compileModuleGen failed, exit code " <> show ec
+      error $ "compileProgram failed, exit code " <> show ec
     ExitSuccess -> do
-      return (ModuleGen fp mod)
+      return (ProgramBin fp)
+
+
+-- | Compile TVM model, the binary will be placed to file @fp@
+compileModuleGen :: FilePath -> ModuleGenSrc -> IO ModuleGen
+compileModuleGen fp (ModuleGenSrc mod code) = do
+  ProgramBin fp <- compileProgram fp (ProgramSrc code)
+  return (ModuleGen fp mod)
 
 -- | Execute the Model generator, return the Assembly string, suitable for `compileModel`
 stage :: ModuleGen -> IO Assembly
@@ -75,4 +84,17 @@ buildModule fp m =
   mgen <- compileModuleGen fgen (printModuleGen m)
   asm <- stage mgen
   compileModel fp asm
+
+
+-- | FIXME: Remove test program after usage
+printFunction :: Function -> IO Text
+printFunction f@(Function te) = do
+  -- withTmpf "printer" $ \f -> do
+  ProgramBin prg <- compileProgram "printer" (printPrinter te)
+  let exec_fp = if isAbsolute prg then prg else "./" <> prg
+  (ec,out,err) <- readProcessWithExitCode exec_fp [] []
+  case ec of
+    ExitFailure ec -> do
+      error $ "compileModel failed, exit code " <> show ec
+    ExitSuccess -> return (tpack out)
 

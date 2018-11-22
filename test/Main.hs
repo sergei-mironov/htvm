@@ -18,6 +18,7 @@ import Test.QuickCheck.Monadic (forAllM, monadicIO, run, assert)
 import Control.Monad (when)
 import Data.Functor.Foldable (Fix(..), Recursive(..), Corecursive(..))
 import Data.Maybe (fromMaybe)
+import Data.Text (isInfixOf)
 import Data.Monoid ((<>))
 import System.Directory (getTemporaryDirectory)
 import System.IO.Temp (withTempFile)
@@ -40,11 +41,6 @@ genShape :: Gen [Integer]
 genShape = do
   ndim <- choose (0,4)
   vectorOf ndim (choose (0,5))
-
-withTmpf :: String -> (FilePath -> IO x) -> IO x
-withTmpf nm act = do
-  tmp <- getTemporaryDirectory
-  withTempFile tmp nm $ \x _ -> act x
 
 withTestModule :: Stmt Function -> (ModuleLib -> IO b) -> IO b
 withTestModule mf act =
@@ -116,12 +112,22 @@ main = defaultMain $
 
     , testCase "Compiler (g++ -ltvm) should be available" $ do
         withTmpf "htvm-compiler-test" $ \x -> do
-          _ <- compileModuleGen x (CppProgram undefined "int main() { return 0; }")
+          _ <- compileModuleGen x (ModuleGenSrc undefined "int main() { return 0; }")
           return ()
 
     , testCase "Pretty-printer (clang-format) should be available" $ do
         _ <- prettyCpp "int main() { return 0; }"
         return ()
+
+    , testCase "Function printer should work" $
+        do
+        dump <-
+          printFunction =<< do
+            stageFunction $ do
+              s <- shapevar [10]
+              function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+                compute s $ \[i] -> a![i] + b![i]
+        assertBool "dump should contain 'produce' keyword" $ isInfixOf "produce" dump
 
     , testCase "Simple model should work" $
         let

@@ -33,7 +33,7 @@ demo1 =
 
 demo3 :: IO TenExpr
 demo3 = do
-  stageStmt $ do
+  stageTenExpr $ do
     d <- dimvar
     s <- shapevar [d,10]
     f <- function "vecadd" [("A",float32,s)] $ \[a] -> do
