@@ -20,13 +20,13 @@ prettyCpp t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 compileProgram :: FilePath -> ProgramSrc -> IO ProgramBin
 compileProgram fp (ProgramSrc code) = do
   {- traceM (tunpack code) -}
-  (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "c++", "-", "-ltvm", "-o", fp] =<< do
-    tunpack <$> prettyCpp code
+  pcode <- tunpack <$> prettyCpp code
+  (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "c++", "-", "-ltvm", "-o", fp] pcode
   hPutStr stderr err
   hPutStr stdout out
   case ec of
     ExitFailure ec -> do
-      error $ "compileProgram failed, exit code " <> show ec
+      fail $ "compileProgram failed, exit code " <> show ec <> "\nFailed program was:\n" <> unlines (map (\(a,b) -> b <> " " <> a) ((lines pcode)`zip`[show x | x<-[1..]]))
     ExitSuccess -> do
       return (ProgramBin fp)
 

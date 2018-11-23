@@ -54,7 +54,7 @@ withTestModule mf act =
 
 main :: IO ()
 main = defaultMain $
-    testGroup "All" [
+    testGroup "All" $ reverse [
 
       testGroup "Uninitialized Tensor FFI should work" $
         let
@@ -148,5 +148,13 @@ main = defaultMain $
               callTensorFunction c fmod [a,b]
               assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
+    , testCase "Reduce axis should work" $
+
+        withTestModule (do
+          s <- shapevar [4]
+          function "reduce" [("A",float32,s)] $ \[a] -> do
+            r <- axis (0,3)
+            compute ShapeScalar $ \[] -> ecall "sum" [a![r], ETuple [r]]
+          ) $ \_ -> return ()
     ]
 

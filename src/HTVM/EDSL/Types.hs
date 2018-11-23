@@ -32,10 +32,10 @@ instance Num DimExpr where
   signum = error "signum is undefined for DimExpr"
   fromInteger = DimConst
 
--- | Axis represents iterator running through the range supplied. Equivalent of
--- `tvm::IterVar`.
-data Axis = Axis Name (DimExpr,DimExpr)
-  deriving(Show,Read,Ord,Eq)
+-- -- | Axis represents iterator running through the range supplied. Equivalent of
+-- -- `tvm::IterVar`.
+-- data Axis = Axis Name (DimExpr,DimExpr)
+--   deriving(Show,Read,Ord,Eq)
 
 -- | Shape expressions represents the shape of a tensor, i.e. the number and
 -- size of its dimentions. Rough equivalent of `tvm::Array<Expr>`.
@@ -117,8 +117,9 @@ data Pattern =
     PTensor Name  -- ^ Tensor
   | PShape Name   -- ^ Array<Expr>
   | PVar Name     -- ^ Var
+  | PIterVar Name -- ^ IterVar
   | PFunc Name    -- ^ LoweredFunc
-  | PAxis Name    -- ^ Array<Var>
+  | PAxis Name
   | PTenTuple Name
   | PFuncTuple Name
   deriving(Show,Read,Ord,Eq)
@@ -133,7 +134,7 @@ data TenExpr =
   | TenTuple [TenExpr]
   | TenDim DimExpr
   | TenShape ShapeExpr
-  | TenAxis Axis
+  | TenAxis (DimExpr,DimExpr)
   | TenCompute ShapeExpr Pattern Expr
   | TenDef Text TenExpr                 -- ^ Name and Expression of function
                                         --   definition.
@@ -158,6 +159,10 @@ newtype Function = Function { unFunction :: TenExpr }
 
 data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
+
+data Axis = Axis {aExpr :: TenExpr}
+  deriving(Read,Show,Eq,Ord)
+
 
 data ModuleGenSrc = ModuleGenSrc Module Text
   deriving(Show,Read,Eq,Ord)

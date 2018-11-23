@@ -55,7 +55,7 @@ printExpr e =
       | otherwise -> printName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
     ETenSlice te es -> printTenExpr te <> "(" <> Text.intercalate "," (map go es) <> ")"
     EShapeSlice se sl -> printShapeExpr se <> "[" <> tshow sl <> "]"
-    ETuple es -> "tvm::Array<tvm::Expr>({" <> Text.intercalate "," (map go es) <> "})"
+    ETuple es -> "{" <> Text.intercalate "," (map go es) <> "}"
 
 printName :: Name -> Text
 printName (Name n) = n -- TODO: escape to make C-compatible
@@ -69,6 +69,7 @@ printPattern p =
     PTensor n -> "tvm::Tensor " <> printName n
     PShape n -> "tvm::Array<tvm::Expr> " <> printName n
     PVar n -> "tvm::Var " <> printName n
+    PIterVar n -> "tvm::IterVar " <> printName n
     PFunc n -> "tvm::LoweredFunc " <> printName n
     PAxis n -> "tvm::Array<tvm::Var> " <> printName n
     PTenTuple n -> "tvm::Array<tvm::Tensor> " <> printName n
@@ -91,7 +92,8 @@ printTenExpr te =
     TenId n -> printName n
     TenLet pat e1@(TenLet _ _ _) e2 -> printPattern pat <> " = ({" <> go e1 <> "; });\n" <> go e2
     TenLet pat e1 e2 -> printPattern pat <> " = " <> go e1 <> ";\n" <> go e2
-    TenAxis ax -> error "printTenExpr: Axis (aka `tvm::IterVar`) is not implemented"
+    TenAxis (a,b) -> --error "printTenExpr: Axis (aka `tvm::IterVar`) is not implemented"
+                  "tvm::reduce_axis({ " <> printDimExpr a <> "," <> printDimExpr b <> "})"
     TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
     TenDim s -> printDimExpr s
     TenShape s -> printShapeExpr s

@@ -129,6 +129,9 @@ compute se ebody = do
 call :: Text -> Args -> [TenExpr] -> TenExpr
 call fname attrs args = TenCall (Name fname) attrs args
 
+ecall :: Text -> [Expr] -> Expr
+ecall nm args = ECall (Name nm) args
+
 dimvar :: (Monad m) => StmtT m DimExpr
 dimvar = do
   nm <- freshP "var"
@@ -146,6 +149,12 @@ modul :: (Monad m) => [Function] -> StmtT m Module
 modul fns = do
   n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))
   return $ Module fns (TenId n)
+
+-- | FIXME: Rethink returning expression from statement monad
+axis :: (Monad m) => (DimExpr,DimExpr) -> StmtT m Expr
+axis (a,b) = do
+  n <- assignN PIterVar "axis" (TenAxis (a,b))
+  return (EId n)
 
 
 class Sliceable a b c | a->c, b->c, a->b where
