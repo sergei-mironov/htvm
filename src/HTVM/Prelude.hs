@@ -13,6 +13,7 @@ import Debug.Trace (traceM, traceShowM)
 import Data.Foldable (Foldable)
 import System.Directory (getTemporaryDirectory)
 import System.IO.Temp (withTempFile)
+import System.IO (hClose)
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show
@@ -35,4 +36,4 @@ ilength = toInteger . length
 withTmpf :: String -> (FilePath -> IO x) -> IO x
 withTmpf nm act = do
   tmp <- getTemporaryDirectory
-  withTempFile tmp nm $ \x _ -> act x
+  withTempFile tmp nm $ \x h -> hClose h >> act x

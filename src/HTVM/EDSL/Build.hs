@@ -31,7 +31,8 @@ compileProgram fp (ProgramSrc code) = do
       return (ProgramBin fp)
 
 
--- | Compile TVM model, the binary will be placed to file @fp@
+-- | Compile TVM model, the binary will be placed to file @fp@ Return
+-- `ModuleGen` object that captures its filepath and module expression
 compileModuleGen :: FilePath -> ModuleGenSrc -> IO ModuleGen
 compileModuleGen fp (ModuleGenSrc mod code) = do
   ProgramBin fp <- compileProgram fp (ProgramSrc code)
@@ -51,7 +52,8 @@ stage (ModuleGen fp mod) =
     ExitSuccess -> do
       return (Assembly mod out)
 
--- | Produce the model from the Assembly, see `stage`.
+-- | Produce the model library from the Assembly, see `stage`.
+-- Binary will be placed to output file @fp@
 compileModel :: FilePath -> Assembly -> IO ModuleLib
 compileModel fp asm@(Assembly mod a) = do
   (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "assembler", "-shared", "-fPIC", "-o", fp, "-"] a
@@ -75,26 +77,22 @@ compileModel fp asm@(Assembly mod a) = do
 --   - @LIBRARY_PATH@, @LD_LIBRARY_PATH@ to contain paths to folder with TVM
 --     shared libraries
 --
---  FIXME: Remove modulegen after usage
 buildModule :: FilePath -> Module -> IO ModuleLib
-buildModule fp m =
-  let
-    fgen = fp<>".gen"
-  in do
-  mgen <- compileModuleGen fgen (printModuleGen m)
-  asm <- stage mgen
-  compileModel fp asm
+buildModule fp m = do
+  withTmpf "mgen" $ \fpath -> do
+    mgen <- compileModuleGen fpath (printModuleGen m)
+    asm <- stage mgen
+    compileModel fp asm
 
 
--- | FIXME: Remove test program after usage
 printFunction :: Function -> IO Text
 printFunction f@(Function te) = do
-  -- withTmpf "printer" $ \f -> do
-  ProgramBin prg <- compileProgram "printer" (printPrinter te)
-  let exec_fp = if isAbsolute prg then prg else "./" <> prg
-  (ec,out,err) <- readProcessWithExitCode exec_fp [] []
-  case ec of
-    ExitFailure ec -> do
-      error $ "compileModel failed, exit code " <> show ec
-    ExitSuccess -> return (tpack out)
+  withTmpf "printer" $ \f -> do
+    ProgramBin prg <- compileProgram f (printPrinter te)
+    let exec_fp = if isAbsolute prg then prg else "./" <> prg
+    (ec,out,err) <- readProcessWithExitCode exec_fp [] []
+    case ec of
+      ExitFailure ec -> do
+        error $ "compileModel failed, exit code " <> show ec
+      ExitSuccess -> return (tpack out)
 

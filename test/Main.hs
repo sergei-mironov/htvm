@@ -134,21 +134,19 @@ main = defaultMain $
           dim0 = 4 :: Integer
           fname = "vecadd"
         in do
-        withTmpf "model1" $ \_ -> do
-          withTestModule (do
-            s <- shapevar [fromInteger dim0]
-            function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-              compute s $ \[i] -> a![i] + b![i]
-            ) $
-            \(ModuleLib p _) -> do
-              withModule p $ \hmod -> do
-              withFunction fname hmod $ \fmod -> do
-                a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-                b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
-                c <- newEmptyTensor @Float [dim0] KDLCPU 0
-                callTensorFunction c fmod [a,b]
-                assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
+        withTestModule (do
+          s <- shapevar [fromInteger dim0]
+          function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+            compute s $ \[i] -> a![i] + b![i]
+          ) $
+          \(ModuleLib p _) -> do
+            withModule p $ \hmod -> do
+            withFunction fname hmod $ \fmod -> do
+              a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
+              b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
+              c <- newEmptyTensor @Float [dim0] KDLCPU 0
+              callTensorFunction c fmod [a,b]
+              assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
-          return ()
     ]
 
