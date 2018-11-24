@@ -36,6 +36,10 @@ Haskell tools as usual:
 Log
 ===
 
+#### 24.11.2018
+ * Add bindings for `conv2d` and `pad`
+ * Compiler runners now may dump the program to file before running
+
 #### 23.11.2018
  * Make `reduce_axis` example work
  * Comopile to `C++` is too slow, maybe generate `C++` was not a best idea. At

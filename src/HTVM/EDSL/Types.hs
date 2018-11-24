@@ -130,9 +130,24 @@ data Pattern =
   deriving(Show,Read,Ord,Eq)
 
 
+-- | List of valid Tensor-Expression level function names
 data TenFuncName =
-    TenReduceAxis
-  | TenOp Text
+    TenOp Text
+  | TenReduceAxis
+  | TenConv2d_NCHW
+  | TenPad
+  deriving(Show,Read,Ord,Eq)
+
+-- | `TenCall` receive arguments of the following kinds
+data TenArg =
+    TenArg TenExpr      -- ^ Ordinary argument, another `TenExpr`
+  | TenArgStr Text      -- ^ String argument
+  | TenArgType Type     -- ^ Type argument
+  | TenArgLayout Layout -- ^ Layout argument
+  deriving(Show,Read,Ord,Eq)
+
+-- | Convolution layout
+data Layout = NCHW | NWCN | NHWC
   deriving(Show,Read,Ord,Eq)
 
 -- | Tensor Expressions. Allow us to write code like
@@ -158,7 +173,7 @@ data TenExpr =
                   -- ^ Name and Expression of function definition.
                   --   FIXME: TenDef would be redundant in the presence of
                   --   typechecker.
-  | TenCall { tc_fname::TenFuncName, tc_attrs::Args, tc_args::[TenExpr] }
+  | TenCall { tc_fname::TenFuncName, tc_args::[TenArg] }
                   -- ^ Function call.
                   -- `tc_fname` is the name of a function.
                   -- `tc_attrs` are common non-Tensor arguments to this function.

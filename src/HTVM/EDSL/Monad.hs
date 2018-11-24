@@ -126,8 +126,8 @@ compute se ebody = do
   return (TenId res)
 
 -- | Call a function
-call :: TenFuncName -> Args -> [TenExpr] -> TenExpr
-call fname attrs args = TenCall fname attrs args
+call :: TenFuncName -> [TenExpr] -> TenExpr
+call fname args = TenCall fname (map TenArg args)
 
 ecall :: ExprFuncName -> [Expr] -> Expr
 ecall nm args = ECall nm args
@@ -153,9 +153,10 @@ modul fns = do
 -- | FIXME: Rethink returning expression from statement monad
 axis :: (Monad m) => (DimExpr,DimExpr) -> StmtT m Expr
 axis (a,b) = do
-  n <- assignN PIterVar "axis" (TenCall TenReduceAxis nullArgs [TenTuple [TenDim a, TenDim b]])
+  n <- assignN PIterVar "axis" (TenCall TenReduceAxis [TenArg $ TenTuple [TenDim a, TenDim b]])
   return (EId n)
 
+infixr 7 !
 
 class Sliceable a b c | a->c, b->c, a->b where
   (!) :: a -> b -> c
@@ -167,5 +168,81 @@ instance Sliceable TenExpr [Expr] Expr where
 instance Sliceable ShapeExpr Integer Expr where
   (!) :: ShapeExpr -> Integer -> Expr
   (!) t sl = EShapeSlice t sl
+
+
+class HasDefault a where
+  def :: a
+
+{-
+ _____ ___  ____ ___   ____  _           _ _
+|_   _/ _ \|  _ \_ _| | __ )(_)_ __   __| (_)_ __   __ _ ___
+  | || | | | |_) | |  |  _ \| | '_ \ / _` | | '_ \ / _` / __|
+  | || |_| |  __/| |  | |_) | | | | | (_| | | | | | (_| \__ \
+  |_| \___/|_|  |___| |____/|_|_| |_|\__,_|_|_| |_|\__, |___/
+                                                   |___/
+
+FIXME: Bindings are highly C++ - specific, rethink
+-}
+
+esum :: (Expr,[Expr]) -> Expr
+esum (a,rs) = ecall ExprSum [a, ETuple rs]
+
+data Conv2dArgs = Conv2dArgs {
+    conv2d_stride :: (Integer,Integer)
+  , conv2d_padding ::(Integer,Integer)
+  , conv2d_dilation :: (Integer,Integer)
+  , conv2d_type :: Type
+  , conv2d_name :: Text
+  } deriving(Read,Show,Eq,Ord)
+
+instance HasDefault Conv2dArgs where
+  def = Conv2dArgs (1,1) (1,1) (1,1) TypeFloat32 "conv2d"
+
+conv2d_nchw :: (Monad m) => TenExpr -> TenExpr -> Conv2dArgs -> StmtT m TenExpr
+conv2d_nchw x k Conv2dArgs{..} =
+  assign $ TenCall TenConv2d_NCHW [
+    TenArg x, TenArg k,
+    TenArg $ TenDim $ DimConst $ fst conv2d_stride,
+    TenArg $ TenDim $ DimConst $ snd conv2d_stride,
+    TenArg $ TenDim $ DimConst $ fst conv2d_padding,
+    TenArg $ TenDim $ DimConst $ snd conv2d_padding,
+    TenArgStr conv2d_name
+    ]
+
+data PadArgs = PadArgs {
+    pad_before :: [Expr]
+  , pad_after :: [Expr]
+  , pad_value :: Expr
+  , pad_name :: Text
+  } deriving(Read,Show,Eq,Ord)
+
+instance HasDefault PadArgs where
+  def = PadArgs [] [] 0 "pad"
+
+pad :: (Monad m) => TenExpr -> PadArgs -> StmtT m TenExpr
+pad x PadArgs{..} =
+  assign $ TenCall TenPad [
+    TenArg x,
+    TenArg $ TenExpr $ ETuple pad_before,
+    TenArg $ TenExpr $ ETuple pad_after,
+    TenArg $ TenExpr $ pad_value,
+    TenArgStr pad_name
+    ]
+
+{-
+ ____       _              _       _
+/ ___|  ___| |__   ___  __| |_   _| | ___
+\___ \ / __| '_ \ / _ \/ _` | | | | |/ _ \
+ ___) | (__| | | |  __/ (_| | |_| | |  __/
+|____/ \___|_| |_|\___|\__,_|\__,_|_|\___|
+
+ ____  _           _ _
+| __ )(_)_ __   __| (_)_ __   __ _ ___
+|  _ \| | '_ \ / _` | | '_ \ / _` / __|
+| |_) | | | | | (_| | | | | | (_| \__ \
+|____/|_|_| |_|\__,_|_|_| |_|\__, |___/
+                             |___/
+
+-}
 
 

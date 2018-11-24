@@ -94,12 +94,28 @@ printTenFuncName :: TenFuncName -> Text
 printTenFuncName fn =
   case fn of
     TenReduceAxis -> "tvm::reduce_axis"
+    TenConv2d_NCHW -> "topi::conv2d_nchw"
+    TenPad -> "topi::pad"
     TenOp op -> op
+
+printLayout :: Layout -> Text
+printLayout l =
+  case l of
+    NCHW -> "NCHW"
+    NWCN -> "NWCN"
+    NHWC -> "NHWC"
 
 printTenExpr :: TenExpr -> Text
 printTenExpr te =
   let
     go = printTenExpr
+
+    parg arg =
+      case arg of
+        TenArg e -> go e
+        TenArgStr str -> "\"" <> str <> "\""
+        TenArgType t -> printType t
+        TenArgLayout l -> printLayout l
   in
   case te of
     TenPlh (n,ty,s) -> "tvm::placeholder(" <> printShapeExpr s <> "," <> printType ty <> ",\""<>n<>"\")"
@@ -124,12 +140,12 @@ printTenExpr te =
         line $ "auto lowered = tvm::lower(s, f, \"" <> n <> "\", binds, config);"
         line $ "lowered[0];"
         line $ "})"
-    TenCall nm Args{..} es ->
+    TenCall nm es ->
       case nm of
         TenOp _
-          | (length es == 2) -> go (es!!0) <> printTenFuncName nm <> go (es!!1)
-          | (length es == 1) -> printTenFuncName nm <> go (es!!0)
-        _ -> printTenFuncName nm <> "(" <> Text.intercalate ", " (map go es) <> ")" -- FIXME: attrs?
+          | (length es == 2) -> parg (es!!0) <> printTenFuncName nm <> parg (es!!1)
+          | (length es == 1) -> printTenFuncName nm <> parg (es!!0)
+        _ -> printTenFuncName nm <> "(" <> Text.intercalate ", " (map parg es) <> ")" -- FIXME: attrs?
 
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")

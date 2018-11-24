@@ -148,13 +148,30 @@ main = defaultMain $
               callTensorFunction c fmod [a,b]
               assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
-    , testCase "Reduce axis should work" $
+    , testCase "Reduce axis operation should compile" $
 
         withTestModule (do
           s <- shapevar [4]
           function "reduce" [("A",float32,s)] $ \[a] -> do
             r <- axis (0,3)
-            compute ShapeScalar $ \[] -> ecall ExprSum [a![r], ETuple [r]]
+            compute ShapeScalar $ \[] -> esum (a![r], [r])
+          ) $ \_ -> return ()
+
+    , testCase "Conv2d operation should compile" $
+
+        withTestModule (do
+          sa <- shapevar [1,1,10,10]
+          sk <- shapevar [1,1,3,3]
+          function "reduce" [("A",float32,sa), ("k",float32,sk)] $ \[a,k] -> do
+            conv2d_nchw a k def
+          ) $ \_ -> return ()
+
+    , testCase "Pad operation should compile" $
+
+        withTestModule (do
+          sa <- shapevar [1,1,10,10]
+          function "reduce" [("A",float32,sa) ] $ \[a] -> do
+            pad a def{pad_value=33, pad_before=[2,2,2,2]}
           ) $ \_ -> return ()
     ]
 

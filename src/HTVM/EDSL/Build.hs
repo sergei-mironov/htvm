@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module HTVM.EDSL.Build where
 
+import Control.Monad(when)
 import Data.Text(Text)
 import Data.Text.IO(writeFile)
 import System.FilePath(isAbsolute)
@@ -23,11 +24,12 @@ dumpProgram fp (ProgramSrc code) = do
   writeFile fp =<< prettyCpp code
 
 data CompileConfig = CompileConfig {
-  cc_dump :: Maybe FilePath
+    cc_dump :: Maybe FilePath
+  , cc_copy_out :: Bool
 } deriving(Read,Show,Eq,Ord)
 
 defaultConfig :: CompileConfig
-defaultConfig = CompileConfig Nothing
+defaultConfig = CompileConfig Nothing False
 
 -- | Compile TVM program, the binary will be placed to file @fp@
 compileProgram :: CompileConfig -> FilePath -> ProgramSrc -> IO ProgramBin
@@ -39,11 +41,15 @@ compileProgram cc fp src@(ProgramSrc code) = do
   {- traceM (tunpack code) -}
   pcode <- tunpack <$> prettyCpp code
   (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "c++", "-", "-ltvm", "-o", fp] pcode
-  hPutStr stderr err
-  hPutStr stdout out
+  when (cc_copy_out cc) $ do
+    hPutStr stderr err
+    hPutStr stdout out
   case ec of
     ExitFailure ec -> do
-      fail $ "compileProgram failed, exit code " <> show ec <> "\nFailed program was:\n" <> unlines (map (\(a,b) -> b <> " " <> a) ((lines pcode)`zip`[show x | x<-[1..]]))
+      fail $ "compileProgram failure\n"
+          <> "Failed program was:\n\n" <> unlines (map (\(a,b) -> b <> " " <> a) ((lines pcode)`zip`[show x | x<-[1..]])) <> "\n"
+          <> "Compiler error:\n\n" <> err
+          <> "Compiler exit code: " <> show ec <> "\n"
     ExitSuccess -> do
       return (ProgramBin fp)
 
