@@ -2,10 +2,12 @@
 module HTVM.EDSL.Build where
 
 import Data.Text(Text)
+import Data.Text.IO(writeFile)
 import System.FilePath(isAbsolute)
 import System.Exit(ExitCode(..))
 import System.Process(readCreateProcess,readProcessWithExitCode,shell)
 import System.IO (hPutStr,stdout,stderr)
+import Prelude hiding(writeFile)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
@@ -16,9 +18,24 @@ import HTVM.EDSL.Printer
 prettyCpp :: Text -> IO Text
 prettyCpp t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 
+dumpProgram :: FilePath -> ProgramSrc -> IO ()
+dumpProgram fp (ProgramSrc code) = do
+  writeFile fp =<< prettyCpp code
+
+data CompileConfig = CompileConfig {
+  cc_dump :: Maybe FilePath
+} deriving(Read,Show,Eq,Ord)
+
+defaultConfig :: CompileConfig
+defaultConfig = CompileConfig Nothing
+
 -- | Compile TVM program, the binary will be placed to file @fp@
-compileProgram :: FilePath -> ProgramSrc -> IO ProgramBin
-compileProgram fp (ProgramSrc code) = do
+compileProgram :: CompileConfig -> FilePath -> ProgramSrc -> IO ProgramBin
+compileProgram cc fp src@(ProgramSrc code) = do
+  case (cc_dump cc) of
+    Just dfp -> do
+      dumpProgram dfp src
+    Nothing -> return ()
   {- traceM (tunpack code) -}
   pcode <- tunpack <$> prettyCpp code
   (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "c++", "-", "-ltvm", "-o", fp] pcode
@@ -33,12 +50,13 @@ compileProgram fp (ProgramSrc code) = do
 
 -- | Compile TVM model, the binary will be placed to file @fp@ Return
 -- `ModuleGen` object that captures its filepath and module expression
-compileModuleGen :: FilePath -> ModuleGenSrc -> IO ModuleGen
-compileModuleGen fp (ModuleGenSrc mod code) = do
-  ProgramBin fp <- compileProgram fp (ProgramSrc code)
+compileModuleGen :: CompileConfig -> FilePath -> ModuleGenSrc -> IO ModuleGen
+compileModuleGen cc fp (ModuleGenSrc mod code) = do
+  ProgramBin fp <- compileProgram cc fp (ProgramSrc code)
   return (ModuleGen fp mod)
 
--- | Execute the Model generator, return the Assembly string, suitable for `compileModel`
+-- | Execute the Model generator, return the Assembly string, suitable for
+-- `compileModel`
 stage :: ModuleGen -> IO Assembly
 stage (ModuleGen fp mod) =
   let
@@ -77,18 +95,18 @@ compileModel fp asm@(Assembly mod a) = do
 --   - @LIBRARY_PATH@, @LD_LIBRARY_PATH@ to contain paths to folder with TVM
 --     shared libraries
 --
-buildModule :: FilePath -> Module -> IO ModuleLib
-buildModule fp m = do
+buildModule :: CompileConfig -> FilePath -> Module -> IO ModuleLib
+buildModule cc fp m = do
   withTmpf "mgen" $ \fpath -> do
-    mgen <- compileModuleGen fpath (printModuleGen m)
+    mgen <- compileModuleGen cc fpath (printModuleGen m)
     asm <- stage mgen
     compileModel fp asm
 
 
-printFunction :: Function -> IO Text
-printFunction f@(Function te) = do
+printFunction :: CompileConfig -> Function -> IO Text
+printFunction cc f@(Function te) = do
   withTmpf "printer" $ \f -> do
-    ProgramBin prg <- compileProgram f (printPrinter te)
+    ProgramBin prg <- compileProgram cc f (printPrinter te)
     let exec_fp = if isAbsolute prg then prg else "./" <> prg
     (ec,out,err) <- readProcessWithExitCode exec_fp [] []
     case ec of

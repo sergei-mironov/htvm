@@ -47,7 +47,7 @@ withTestModule mf act =
   withTmpf "htvm-test-module" $ \fp -> do
     {- traceM $ "file: " <> fp -}
     act =<< do
-      buildModule fp $
+      buildModule defaultConfig fp $
         stageModule $ do
           f <- mf
           modul [f]
@@ -112,7 +112,7 @@ main = defaultMain $
 
     , testCase "Compiler (g++ -ltvm) should be available" $ do
         withTmpf "htvm-compiler-test" $ \x -> do
-          _ <- compileModuleGen x (ModuleGenSrc undefined "int main() { return 0; }")
+          _ <- compileModuleGen defaultConfig x (ModuleGenSrc undefined "int main() { return 0; }")
           return ()
 
     , testCase "Pretty-printer (clang-format) should be available" $ do
@@ -122,7 +122,7 @@ main = defaultMain $
     , testCase "Function printer should work" $
         do
         dump <-
-          printFunction =<< do
+          printFunction defaultConfig =<< do
             stageFunction $ do
               s <- shapevar [10]
               function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
