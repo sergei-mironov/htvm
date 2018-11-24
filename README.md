@@ -14,7 +14,7 @@ Expected features are:
 * Runtime performs evaluation of the model using Haskell-to-C FFI.
 
 
-In future, the C++ may should be replaced with explicit AST generation.
+In future, the C++ may be replaced with explicit AST generation.
 
 Install
 -------
@@ -36,6 +36,13 @@ Haskell tools as usual:
 Log
 ===
 
+#### 23.11.2018
+ * Make `reduce_axis` example work
+ * Comopile to `C++` is too slow, maybe generate `C++` was not a best idea. At
+   least, it seems to be easer for printing than Python.
+ * I feel that TenExpr/Expr separation is a bit artificial. One really needs a
+   full-scale typechecker here.
+
 #### 21.11.2018
  * Re-implement callTensorFunction
  * Module now contains information about its functions
@@ -45,8 +52,8 @@ Log
  * Update callTensorFunction, still work in progress. DLTensor -> DLValue
    converter is needed
  * Complete the code of callTensorFunction, untested
- * TODO: implement TVMTensor as a ForeignPtr
- * TODO: write tests
+ * ~~TODO: implement TVMTensor as a ForeignPtr~~
+ * ~~TODO: write tests~~
 
 #### 12.11.2018
  * [c2hs guide](https://github.com/haskell/c2hs/wiki/Implementation-of-Haskell-Binding-Modules)
