@@ -154,7 +154,7 @@ main = defaultMain $
           s <- shapevar [4]
           function "reduce" [("A",float32,s)] $ \[a] -> do
             r <- axis (0,3)
-            compute ShapeScalar $ \[] -> ecall "sum" [a![r], ETuple [r]]
+            compute ShapeScalar $ \[] -> ecall ExprSum [a![r], ETuple [r]]
           ) $ \_ -> return ()
     ]
 

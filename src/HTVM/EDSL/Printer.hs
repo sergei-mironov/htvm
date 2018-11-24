@@ -38,6 +38,12 @@ printShapeExpr se =
     ShapeScalar -> "{}"
     ShapeSum se1 se2 -> "shape_concat("<> go se1 <> "," <> go se2 <> ")"
 
+printExprFuncName :: ExprFuncName -> Text
+printExprFuncName fn =
+  case fn of
+    ExprSum -> "tvm::sum"
+    ExprOp op -> op
+
 printExpr :: Expr -> Text
 printExpr e =
   let
@@ -49,10 +55,12 @@ printExpr e =
       case c of
         CInt i -> tshow i
         CFloat32 f -> tshow f
-    ECall nm es
-      | isOpName nm && length es == 2 -> go (es!!0) <> printName nm <> go (es!!1)
-      | isOpName nm && length es == 1 -> printName nm <> go (es!!0)
-      | otherwise -> printName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
+    ECall nm es ->
+      case nm of
+        ExprOp _
+          | length es == 2 -> go (es!!0) <> printExprFuncName nm <> go (es!!1)
+          | length es == 1 -> printExprFuncName nm <> go (es!!0)
+        _ -> printExprFuncName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
     ETenSlice te es -> printTenExpr te <> "(" <> Text.intercalate "," (map go es) <> ")"
     EShapeSlice se sl -> printShapeExpr se <> "[" <> tshow sl <> "]"
     ETuple es -> "{" <> Text.intercalate "," (map go es) <> "}"
@@ -82,6 +90,12 @@ printType t =
     TypeInt32 ->  "tvm::Int(32)"
     Tensor _ _ -> "tvm::Tensor()"
 
+printTenFuncName :: TenFuncName -> Text
+printTenFuncName fn =
+  case fn of
+    TenReduceAxis -> "tvm::reduce_axis"
+    TenOp op -> op
+
 printTenExpr :: TenExpr -> Text
 printTenExpr te =
   let
@@ -92,11 +106,12 @@ printTenExpr te =
     TenId n -> printName n
     TenLet pat e1@(TenLet _ _ _) e2 -> printPattern pat <> " = ({" <> go e1 <> "; });\n" <> go e2
     TenLet pat e1 e2 -> printPattern pat <> " = " <> go e1 <> ";\n" <> go e2
-    TenAxis (a,b) -> --error "printTenExpr: Axis (aka `tvm::IterVar`) is not implemented"
-                  "tvm::reduce_axis({ " <> printDimExpr a <> "," <> printDimExpr b <> "})"
+    -- TenAxis (a,b) -> --error "printTenExpr: Axis (aka `tvm::IterVar`) is not implemented"
+    --               "tvm::reduce_axis({ " <> printDimExpr a <> "," <> printDimExpr b <> "})"
     TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
     TenDim s -> printDimExpr s
     TenShape s -> printShapeExpr s
+    TenExpr e -> printExpr e
     TenCompute sh p e -> "tvm::compute(" <> printShapeExpr sh <> ", tvm::FCompute([=](" <> printPattern p <> ") { return " <> printExpr e <> "; }))"
     TenDef n te ->
       execWriter $ do
@@ -109,10 +124,12 @@ printTenExpr te =
         line $ "auto lowered = tvm::lower(s, f, \"" <> n <> "\", binds, config);"
         line $ "lowered[0];"
         line $ "})"
-    TenCall nm Args{..} es
-      | isOpName nm && (length es == 2) -> go (es!!0) <> printName nm <> go (es!!1)
-      | isOpName nm && (length es == 1) -> printName nm <> go (es!!0)
-      | otherwise -> printName nm <> "(" <> Text.intercalate ", " (map go es) <> ")" -- FIXME: attrs?
+    TenCall nm Args{..} es ->
+      case nm of
+        TenOp _
+          | (length es == 2) -> go (es!!0) <> printTenFuncName nm <> go (es!!1)
+          | (length es == 1) -> printTenFuncName nm <> go (es!!0)
+        _ -> printTenFuncName nm <> "(" <> Text.intercalate ", " (map go es) <> ")" -- FIXME: attrs?
 
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")

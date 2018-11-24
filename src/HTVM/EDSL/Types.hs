@@ -74,6 +74,11 @@ shape des = undefined
 --     ShapeScalar -> []
 --     ShapeSum a b -> shapeFlattern a <> shapeFlattern b
 
+data ExprFuncName =
+    ExprOp Text
+  | ExprSum
+  deriving(Show,Read,Ord,Eq)
+
 -- | Scalar expressions
 data Expr =
     EConst Const             -- ^ A constant
@@ -81,15 +86,15 @@ data Expr =
   | EShapeSlice ShapeExpr Integer
                              -- ^ Access a certain dimention of ShapeExpr
   | ETenSlice TenExpr [Expr] -- ^ Accessing an individual element of a tensor
-  | ECall Name [Expr]        -- ^ Call of a function or an operator
+  | ECall ExprFuncName [Expr]        -- ^ Call of a function or an operator
   | ETuple [Expr]            -- ^ A tuple of expressions
   deriving(Show,Read,Ord,Eq)
 
 instance Num Expr where
-  (+) a b = ECall (Name "+") [a,b]
-  (-) a b = ECall (Name "-") [a,b]
-  (*) a b = ECall (Name "*") [a,b]
-  negate a = ECall (Name "-") [a]
+  (+) a b = ECall (ExprOp "+") [a,b]
+  (-) a b = ECall (ExprOp "-") [a,b]
+  (*) a b = ECall (ExprOp "*") [a,b]
+  negate a = ECall (ExprOp "-") [a]
   abs = error "abs is undefined"
   signum = error "signum is undefined"
   fromInteger = EConst . CInt
@@ -110,9 +115,9 @@ data Args = Args {
   } deriving(Show,Read,Ord,Eq)
 
 nullArgs :: Args
-nullArgs = Args mempty Nothing (Just float32)
+nullArgs = Args Nothing Nothing Nothing
 
--- | Pattern is a left-hand-side of assignment Expression
+-- | Pattern is a left-hand-side of assignments
 data Pattern =
     PTensor Name  -- ^ Tensor
   | PShape Name   -- ^ Array<Expr>
@@ -124,28 +129,40 @@ data Pattern =
   | PFuncTuple Name
   deriving(Show,Read,Ord,Eq)
 
+
+data TenFuncName =
+    TenReduceAxis
+  | TenOp Text
+  deriving(Show,Read,Ord,Eq)
+
 -- | Tensor Expressions. Allow us to write code like
 -- `Tensor a,b; Tensor c = a + b;`
+--
+-- Notes:
+--   * We don't keep Type as a part of TenExpr since in theory we shouldn't need
+--     it (assuming the typechecker is present)
 data TenExpr =
-    TenPlh Placeholder                  -- ^ Placeholder is a tensor, which are
-                                        --   to be supplied in runtime
-  | TenId Name
-  | TenLet Pattern TenExpr TenExpr
+    TenId Name
+  | TenPlh Placeholder
+                  -- ^ Placeholder is a disting kind of TenExpr because it
+                  -- refers `Type` and `ShapeExpr` which are not `TenExpr`
   | TenTuple [TenExpr]
   | TenDim DimExpr
   | TenShape ShapeExpr
-  | TenAxis (DimExpr,DimExpr)
+  | TenExpr Expr
+                  -- ^ We need TenExpr to encode `reduce_axis` calls. It returns
+                  -- sliceable expressions
+  | TenLet Pattern TenExpr TenExpr
   | TenCompute ShapeExpr Pattern Expr
-  | TenDef Text TenExpr                 -- ^ Name and Expression of function
-                                        --   definition.
-                                        --   FIXME: TenDef would be redundant
-                                        --   in the presence of typechecker.
-  | TenCall { tc_fname::Name, tc_attrs::Args, tc_args::[TenExpr] }
-                                        -- ^ Function call. `tc_fname` is the
-                                        --   name of a function. `tc_attrs` is
-                                        --   common non-Tensor arguments to this
-                                        --   function. `tc_args` is the Tensor
-                                        --   arguments.
+  | TenDef Text TenExpr
+                  -- ^ Name and Expression of function definition.
+                  --   FIXME: TenDef would be redundant in the presence of
+                  --   typechecker.
+  | TenCall { tc_fname::TenFuncName, tc_attrs::Args, tc_args::[TenExpr] }
+                  -- ^ Function call.
+                  -- `tc_fname` is the name of a function.
+                  -- `tc_attrs` are common non-Tensor arguments to this function.
+                  -- `tc_args` are the Tensor arguments.
   deriving(Show,Read,Ord,Eq)
 
 

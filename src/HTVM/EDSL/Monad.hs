@@ -126,11 +126,11 @@ compute se ebody = do
   return (TenId res)
 
 -- | Call a function
-call :: Text -> Args -> [TenExpr] -> TenExpr
-call fname attrs args = TenCall (Name fname) attrs args
+call :: TenFuncName -> Args -> [TenExpr] -> TenExpr
+call fname attrs args = TenCall fname attrs args
 
-ecall :: Text -> [Expr] -> Expr
-ecall nm args = ECall (Name nm) args
+ecall :: ExprFuncName -> [Expr] -> Expr
+ecall nm args = ECall nm args
 
 dimvar :: (Monad m) => StmtT m DimExpr
 dimvar = do
@@ -153,7 +153,7 @@ modul fns = do
 -- | FIXME: Rethink returning expression from statement monad
 axis :: (Monad m) => (DimExpr,DimExpr) -> StmtT m Expr
 axis (a,b) = do
-  n <- assignN PIterVar "axis" (TenAxis (a,b))
+  n <- assignN PIterVar "axis" (TenCall TenReduceAxis nullArgs [TenTuple [TenDim a, TenDim b]])
   return (EId n)
 
 
