@@ -153,7 +153,7 @@ main = defaultMain $
         withTestModule (do
           s <- shapevar [4]
           function "reduce" [("A",float32,s)] $ \[a] -> do
-            r <- axis (0,3)
+            IterVar r <- reduce_axis (0,3)
             compute ShapeScalar $ \[] -> esum (a![r], [r])
           ) $ \_ -> return ()
 
@@ -172,6 +172,18 @@ main = defaultMain $
           sa <- shapevar [1,1,10,10]
           function "reduce" [("A",float32,sa) ] $ \[a] -> do
             pad a def{pad_value=33, pad_before=[2,2,2,2]}
+          ) $ \_ -> return ()
+
+    , testCase "Parallel schedule should compile" $
+
+        withTestModule (do
+          sa <- shapevar [1,1,10,10]
+          function "reduce" [("A",float32,sa) ] $ \[a] -> do
+            c <- pad a def{pad_value=33, pad_before=[2,2,2,2]}
+            r <- axisId c 0
+            s <- schedule [c]
+            parallel s c r
+            return c
           ) $ \_ -> return ()
     ]
 

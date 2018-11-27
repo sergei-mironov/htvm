@@ -40,6 +40,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import HTVM.Prelude
 
 
+-- | Errors raised by various functions from this module
 data TVMError =
     TVMAllocFailed Int
   | TVMFreeFailed Int
@@ -67,7 +68,10 @@ instance Storable TVMTypeCode where
   peek pc = toEnum <$> peek (castPtr pc)
   poke pc c = poke (castPtr pc) (fromEnum c)
 
+-- | Representation of tvm_index_t
 type TVMShapeIndex = {# type tvm_index_t #}
+
+-- | Representation of device identifiers
 type TVMDeviceId = Int
 
 data TVMContext
@@ -89,6 +93,8 @@ instance Storable TVMTensor_Repr where
 
 -- | Alias for `TVMArrayHandle`
 type TVMArrayHandle = Ptr TVMTensor_Repr
+
+-- | Alias for pointer to `TVMArray` aka `DLTensor`.
 type TVMTensor = ForeignPtr TVMTensor_Repr
 
 
@@ -101,7 +107,10 @@ instance Storable TVMValue where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
+-- | Alias for void* used as Module handle
 type TVMModule = Ptr ()
+
+-- | Alias for void* used as Function handle
 type TVMFunction = Ptr ()
 
 setTensor :: TVMTensor -> Ptr TVMValue -> Ptr TVMTypeCode -> IO ()
@@ -243,7 +252,10 @@ tensorShape ft = unsafePerformIO $ do
     map toInteger <$> do
       peekArray (fromInteger $ tensorNDim ft) =<< {# get DLTensor->shape #} pt
 
--- | FIXME: non-CPU devices will not work, see FIXME in `pokeTensor`
+-- | Create new empty TVMTensor object. This object will be managed by Haskell
+-- runtime which would call free when it decides to do so.
+--
+-- FIXME: non-CPU devices will not work, see FIXME in `pokeTensor`
 newEmptyTensor :: forall e . (TVMElemType e)
   => [Integer]                   -- ^ Shape
   -> TVMDeviceType               -- ^ Device type (CPU|GPU|etc)
@@ -269,6 +281,7 @@ newEmptyTensor shape dt did =
       0 -> peek pt >>= newForeignPtr tvmArrayFree_
       e -> throwIO (TVMAllocFailed (fromCInt e))
 
+-- | Allocate new Tensor object
 newTensor :: forall d i e . (TVMData d i e)
   => d                           -- ^ TvmData tensor-like object
   -> TVMDeviceType               -- ^ Device type
@@ -305,83 +318,17 @@ pokeTensor ft d = do
       x -> do
         fail "Not implemented"
 
-{-
--- deprecated
-withTensorInput :: forall d i e b . (TVMData d i e)
-  => d                           -- ^ TvmData tensor-like object
-  -> TVMDeviceType               -- ^ Device type
-  -> TVMDeviceId                 -- ^ Device ID
-  -> (Ptr TVMTensor -> IO b)     -- ^ Handler funtion
-  -> IO b
-withTensorInput d dt did f = do
-  alloca $ \ptensor ->
-    let
-      shape = map fromInteger $ tvmDataShape d
-      ndim = fromInteger $ tvmDataDims d
-    in
-    allocaArray ndim $ \pshape -> do
-      pokeArray pshape shape
-      r <- tvmArrayAlloc
-              pshape (toCInt ndim)
-              (toCInt $ fromEnum $ tvmTypeCode @e)
-              (fromInteger $ tvmTypeBits @e)
-              (fromInteger $ tvmTypeLanes @e)
-              (toCInt $ fromEnum dt)
-              (toCInt $ did)
-              ptensor
-      case r of
-        0 -> do
-          {- Copying data from TVMData d-}
-          pdata <- {# get DLTensor->data #} ptensor
-          tvmPoke d (castPtr pdata)
-          {- Calling user handler -}
-          b <- f ptensor
-          r2 <- tvmArrayFree ptensor
-          case r2 of
-            0 -> return b
-            e -> throwIO (TVMFreeFailed (fromCInt e))
-        e -> throwIO (TVMAllocFailed (fromCInt e))
-
-withTensorOutput :: forall d i e b . (TVMData d i e)
-  => [Integer]
-  -> TVMDeviceType
-  -> TVMDeviceId
-  -> (Ptr TVMTensor -> IO b)
-  -> IO (d,b)
-withTensorOutput shape dt did f = do
-  alloca $ \ptensor ->
-    let
-      ndim = length shape
-    in
-    allocaArray ndim $ \pshape -> do
-      pokeArray pshape (map (fromInteger . toInteger) shape)
-      r <- tvmArrayAlloc
-              pshape (toCInt ndim)
-              (toCInt $ fromEnum $ tvmTypeCode @e)
-              (fromInteger $ tvmTypeBits @e)
-              (fromInteger $ tvmTypeLanes @e)
-              (toCInt $ fromEnum dt)
-              (toCInt $ did)
-              ptensor
-      case r of
-        0 -> do
-          {- Calling user handler -}
-          b <- f ptensor
-          {- Copying data from TVMData d-}
-          pdata <- {# get DLTensor->data #} ptensor
-          d <- tvmPeek shape (castPtr pdata)
-          r <- tvmArrayFree ptensor
-          case r of
-            0 -> return (d,b)
-            e -> throwIO (TVMFreeFailed $ fromInteger $ toInteger e)
-        e -> throwIO (TVMAllocFailed $ fromCInt e)
--}
-
 foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
   tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
 
+foreign import ccall unsafe "c_runtime_api.h TVMModFree"
+  tvmModFree :: TVMModule -> IO CInt
+
 foreign import ccall unsafe "c_runtime_api.h TVMModGetFunction"
   tvmModGetFunction :: TVMModule -> CString -> CInt -> Ptr TVMFunction -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMFuncFree"
+  tvmFuncFree :: TVMFunction -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
   tvmGetLastError :: IO CString
@@ -389,12 +336,11 @@ foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
 foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
   tvmFuncCall :: TVMFunction -> Ptr TVMValue -> Ptr TVMTypeCode -> CInt -> Ptr TVMValue -> Ptr TVMTypeCode -> IO CInt
 
+-- | Return a string describing the last error issued by TVM runtime
 getLastError :: IO String
 getLastError = peekCAString =<< tvmGetLastError
 
--- | Load module from 'so' dynamic library
--- TODO: Unload the module
--- TODO: Pass GetLastError in case of failure
+-- | Load module from dynamic library @modname@ and process it with a callback @func@
 withModule :: FilePath -> (TVMModule -> IO b) -> IO b
 withModule modname func =
   alloca $ \pmod -> do
@@ -402,25 +348,34 @@ withModule modname func =
   withCString "so" $ \so -> do
     r <- tvmModLoadFromFile cmodname so pmod
     case r of
-      0 -> func =<< peek pmod
+      0 -> do
+        m <- peek pmod
+        b <- func m
+        tvmModFree m
+        return b
       err -> do
         str <- getLastError
         throwIO (TVMModLoadFailed (fromInteger $ toInteger err) str)
 
--- | Load the function from module
--- TODO: Unload the module
--- TODO: Pass GetLastError in case of failure
+-- | Load the function named @funcname@ from module @mod@, use it in callback @func@
 withFunction :: Text -> TVMModule -> (TVMFunction -> IO b) -> IO b
 withFunction funcname mod func =
   alloca $ \pfunc -> do
   withCString (tunpack funcname) $ \cfuncname -> do
     r <- tvmModGetFunction mod cfuncname 0 pfunc
     case r of
-      0 -> func =<< peek pfunc
+      0 -> do
+        f <- peek pfunc
+        b <- func f
+        tvmFuncFree f
+        return b
       err -> do
         str <- getLastError
         throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) str)
 
+-- | Call function @fun@ returning @ret@ with @args@
+--
+-- TODO: Process pvretcode
 callTensorFunction :: TVMTensor -> TVMFunction -> [TVMTensor] -> IO ()
 callTensorFunction ret fun args =
   let
@@ -443,103 +398,3 @@ callTensorFunction ret fun args =
         str <- getLastError
         throwIO (TVMFunCallFailed (fromCInt x) str)
 
-{-
-callTensorFunction :: forall d i e . (TVMData d i e) => [Integer] -> TVMFunction -> [d] -> IO d
-callTensorFunction oshape fun ts0 =
-  let
-    devtype = KDLCPU
-    devid = 0
-    go pts (t:ts) = withTensorInput t devtype devid $ \pt -> go (pt:pts) ts
-    go pts [] = withTensorOutput oshape devtype devid $ \pto -> do
-      alloca $ \pret -> do
-      alloca $ \pretcode -> do
-      allocaArray (length pts) $ \pv -> do
-      allocaArray (length pts) $ \pc -> do
-        forM_ (pts`zip`[0..(length pts)-1]) $ \(pt,off) -> do
-          setTensor pt (advancePtr pv off) (advancePtr pc off)
-        setTensor pto pret pretcode
-        let clen = fromInteger $ toInteger $ length pts
-        r <- tvmFuncCall fun pv pc clen pret pretcode
-        rt <- peek pretcode
-        case (r,rt) of
-          (0,KArrayHandle) -> do
-            return ()
-          (x,KArrayHandle) -> do
-            throwIO (TVMFunCallFailed $ fromInteger $ toInteger x)
-          (0,t) -> do
-            throwIO (TVMFunCallBadType $ fromEnum rt)
-          _ -> error "callTensorFunction: unexpected return code"
-  in
-  fst <$> go [] ts0
--}
-
-{-
-TVM_DLL int TVMModGetFunction(TVMModuleHandle mod,
-                              const char* func_name,
-                              int query_imports,
-                              TVMFunctionHandle *out);
--}
-
-{-
-foreign import ccall unsafe "dlfcn.h dlopen"
-  dlopen :: CString -> Int -> IO (Ptr ModuleHandle)
-foreign import ccall unsafe "dlfcn.h dlclose"
-  dlclose :: Ptr ModuleHandle -> IO ()
--}
-
-
-
-{-
-
-{#
-enum mtl_Formula_type as Mtl_Formula_Type {upcaseFirstLetter}
-    deriving (Eq, Show)
-#}
-
-
-
-instance Storable ??? where
-    sizeOf _ = {# sizeof mtl_State #} + maxSubformulas * {# sizeof mtl_Payload #}
-    alignment _ = {# alignof mtl_Formula #}
-    peek = error ("peek is not implemented for the State datatype")
-    poke mptr ??? = do
-        let sf = unfold f
-        when (length sf > maxSubformulas) $
-            fail $ "Subformulas number limit (" ++ show maxSubformulas ++ ") is reached"
-        let ppl num =
-                mptr
-                `plusPtr` {# sizeof mtl_State #}
-                `plusPtr` (num * {# sizeof mtl_Formula_subf #})
-        {# set mtl_State.pl #} mptr (ppl 0)
-        {# set mtl_State.pl_size #} mptr (fromIntegral $ length sf)
-
--- | Represents the immutable part of a formula on the C-side
-instance Storable ??? where
-    sizeOf _ = {# sizeof mtl_Formula #}
-    alignment _ = {# alignof mtl_Formula #}
-    peek = error ("peek is not implemented for the Formula datatype")
-    poke iptr ??? = do
-        let sf = unfold f
-        when (length sf > maxSubformulas) $
-            fail $ "Subformulas number limit (" ++ show maxSubformulas ++ ") is reached"
-
-        let -- | Returns pointer to subformula @n@, the array os stored after mtl_Formula
-            psubf num =
-                iptr
-                `plusPtr` {# sizeof mtl_Formula #}
-                `plusPtr` (num * {# sizeof mtl_Formula_subf #})
-
-        {# set mtl_Formula.subf #} iptr (psubf 0)
-        {# set mtl_Formula.subf_size #} iptr (fromIntegral $ length sf)
-        for_ (sf `zip` [0 ..]) $ \(f', i) -> do
-            {# set mtl_Formula_subf.t #} (psubf i) (ft2ct (ftype f'))
-            {# set mtl_Formula_subf.argn #} (psubf i) (fromIntegral . fromMaybe (-1) $ argn f')
-            {# set mtl_Formula_subf.nm.pname #} (psubf i)
-                (case predA f' of
-                    Just (PName nm1) -> fromIntegral $ hash nm1
-                    Nothing -> -1
-                )
-            {# set mtl_Formula_subf.p1.pos #} (psubf i) (fromIntegral $ fromMaybe (-1) $ (fst <$> snd <$> payload <$> subfn 0 f'))
-            {# set mtl_Formula_subf.p2.pos #} (psubf i) (fromIntegral $ fromMaybe (-1) $ (fst <$> snd <$> payload <$> subfn 1 f'))
-
--}

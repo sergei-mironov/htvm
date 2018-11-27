@@ -36,6 +36,11 @@ Haskell tools as usual:
 Log
 ===
 
+#### 28.11.2018
+ * Start to bind Schedulers
+ * Improve monadic API
+ * Free module and function after use in FFI
+
 #### 24.11.2018
  * Add bindings for `conv2d` and `pad`
  * Compiler runners now may dump the program to file before running

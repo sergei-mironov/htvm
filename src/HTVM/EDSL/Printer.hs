@@ -12,6 +12,7 @@ import Data.Text(Text)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
+import HTVM.EDSL.Monad
 
 printDimExpr :: DimExpr -> Text
 printDimExpr se =
@@ -36,7 +37,7 @@ printShapeExpr se =
     ShapeId _ nm -> printName nm
     ShapeVector de -> "{" <> printDimExpr de <> "}"
     ShapeScalar -> "{}"
-    ShapeSum se1 se2 -> "shape_concat("<> go se1 <> "," <> go se2 <> ")"
+    ShapeSum se1 se2 -> "htvm_shape_concat("<> go se1 <> "," <> go se2 <> ")"
 
 printExprFuncName :: ExprFuncName -> Text
 printExprFuncName fn =
@@ -82,21 +83,26 @@ printPattern p =
     PAxis n -> "tvm::Array<tvm::Var> " <> printName n
     PTenTuple n -> "tvm::Array<tvm::Tensor> " <> printName n
     PFuncTuple n -> "tvm::Array<tvm::LoweredFunc> " <> printName n
+    PSchedule n -> "tvm::Schedule " <> printName n
+    PStage n -> "tvm::Stage " <> printName n
 
 printType :: Type -> Text
 printType t =
   case t of
     TypeFloat32 -> "tvm::Float(32)"
     TypeInt32 ->  "tvm::Int(32)"
-    Tensor _ _ -> "tvm::Tensor()"
+    TypeTensor _ _ -> "tvm::Tensor()"
 
 printTenFuncName :: TenFuncName -> Text
 printTenFuncName fn =
   case fn of
+    TenOp op -> op
     TenReduceAxis -> "tvm::reduce_axis"
     TenConv2d_NCHW -> "topi::conv2d_nchw"
     TenPad -> "topi::pad"
-    TenOp op -> op
+    TenSchedule -> "htvm_create_schedule"
+    TenParallel -> "htvm_parallel"
+    TenAxisId -> "htvm_axis_id"
 
 printLayout :: Layout -> Text
 printLayout l =
@@ -115,6 +121,7 @@ printTenExpr te =
         TenArg e -> go e
         TenArgStr str -> "\"" <> str <> "\""
         TenArgType t -> printType t
+        TenArgInt i -> tshow i
         TenArgLayout l -> printLayout l
   in
   case te of
@@ -178,14 +185,26 @@ printIncludes = do
     line $ "#include <topi/broadcast.h>"
     line $ "#include <topi/nn.h>"
     line $ ""
-    line $ "static inline tvm::Array<tvm::Expr> \
-        \       shape_concat(const tvm::Array<tvm::Expr> &s1, const tvm::Array<tvm::Expr> &s2) {\
-        \   tvm::Array<tvm::Expr> res(s1);\
-        \   for(int i=0; i<s2.size(); i++) {\
-        \     res.push_back(s2[i]);\
-        \   }\
-        \   return res;\
-        \ }"
+    line $
+        "static inline tvm::Array<tvm::Expr> \
+        \htvm_shape_concat(const tvm::Array<tvm::Expr> &s1, const tvm::Array<tvm::Expr> &s2) {\
+        \\
+        \  tvm::Array<tvm::Expr> res(s1);\
+        \  for(int i=0; i<s2.size(); i++) {\
+        \    res.push_back(s2[i]);\
+        \  }\
+        \\
+        \  return res;\
+        \}"
+    line $
+        "tvm::Schedule \
+        \htvm_create_schedule(const tvm::Array<tvm::Tensor> &arr) {\
+        \  tvm::Array<tvm::Operation> ops;\
+        \  for(auto a : arr) { ops.push_back(a->op); }\
+        \  return tvm::create_schedule(ops);\
+        \}"
+    line $ "tvm::Stage htvm_parallel(tvm::Schedule s, tvm::Tensor t, tvm::IterVar i) { return s[t->op].parallel(i); }"
+    line $ "tvm::IterVar htvm_axis_id(tvm::Tensor t, int i) { return t->op->root_iter_vars()[i]; }"
     line $ ""
 
 

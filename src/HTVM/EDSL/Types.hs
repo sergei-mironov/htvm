@@ -102,7 +102,7 @@ instance Num Expr where
 data Type =
     TypeFloat32
   | TypeInt32
-  | Tensor Type ShapeExpr
+  | TypeTensor Type ShapeExpr
   deriving(Show,Read,Ord,Eq)
 
 float32 = TypeFloat32
@@ -127,6 +127,8 @@ data Pattern =
   | PAxis Name
   | PTenTuple Name
   | PFuncTuple Name
+  | PSchedule Name
+  | PStage Name
   deriving(Show,Read,Ord,Eq)
 
 
@@ -136,12 +138,16 @@ data TenFuncName =
   | TenReduceAxis
   | TenConv2d_NCHW
   | TenPad
+  | TenSchedule
+  | TenParallel
+  | TenAxisId
   deriving(Show,Read,Ord,Eq)
 
 -- | `TenCall` receive arguments of the following kinds
 data TenArg =
     TenArg TenExpr      -- ^ Ordinary argument, another `TenExpr`
   | TenArgStr Text      -- ^ String argument
+  | TenArgInt Integer   -- ^ Integer argument TODO: remove?
   | TenArgType Type     -- ^ Type argument
   | TenArgLayout Layout -- ^ Layout argument
   deriving(Show,Read,Ord,Eq)
@@ -176,8 +182,7 @@ data TenExpr =
   | TenCall { tc_fname::TenFuncName, tc_args::[TenArg] }
                   -- ^ Function call.
                   -- `tc_fname` is the name of a function.
-                  -- `tc_attrs` are common non-Tensor arguments to this function.
-                  -- `tc_args` are the Tensor arguments.
+                  -- `tc_args` is its arguments.
   deriving(Show,Read,Ord,Eq)
 
 
@@ -186,33 +191,8 @@ type Placeholder = (Text,Type,ShapeExpr)
 -- pls_name :: Placeholder -> Name
 -- pls_name (nm,_,_) = nm
 
-newtype Function = Function { unFunction :: TenExpr }
-  deriving(Read,Show,Eq,Ord)
-
-data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
-  deriving(Read,Show,Eq,Ord)
-
-data Axis = Axis {aExpr :: TenExpr}
-  deriving(Read,Show,Eq,Ord)
-
-
-data ModuleGenSrc = ModuleGenSrc Module Text
-  deriving(Show,Read,Eq,Ord)
-
-data ProgramSrc = ProgramSrc Text
-  deriving(Show,Read,Eq,Ord)
-
-data ProgramBin = ProgramBin FilePath
-  deriving(Show,Read,Eq,Ord)
-
-data ModuleGen = ModuleGen FilePath Module
-  deriving(Show,Read,Eq,Ord)
-
-data Assembly = Assembly Module String
-  deriving(Show,Read,Eq,Ord)
-
-data ModuleLib = ModuleLib FilePath Module
-  deriving(Show,Read,Eq,Ord)
+-- data Axis = Axis {aExpr :: TenExpr}
+--   deriving(Read,Show,Eq,Ord)
 
 
 

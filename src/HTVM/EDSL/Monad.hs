@@ -104,26 +104,53 @@ assignN mkpat prefix te1 = do
 assign :: (Monad m) => TenExpr -> StmtT m TenExpr
 assign te = TenId <$> assignN PTensor "asgn" te
 
-function :: (Monad m) => Text -> [Placeholder] -> ([TenExpr] -> StmtT m TenExpr) -> StmtT m Function
+newtype Function = Function { unFunction :: TenExpr }
+  deriving(Read,Show,Eq,Ord)
+
+data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
+  deriving(Read,Show,Eq,Ord)
+
+data ModuleGenSrc = ModuleGenSrc Module Text
+  deriving(Show,Read,Eq,Ord)
+
+data ProgramSrc = ProgramSrc Text
+  deriving(Show,Read,Eq,Ord)
+
+data ProgramBin = ProgramBin FilePath
+  deriving(Show,Read,Eq,Ord)
+
+data ModuleGen = ModuleGen FilePath Module
+  deriving(Show,Read,Eq,Ord)
+
+data Assembly = Assembly Module String
+  deriving(Show,Read,Eq,Ord)
+
+data ModuleLib = ModuleLib FilePath Module
+  deriving(Show,Read,Eq,Ord)
+
+function :: (Monad m) => Text -> [Placeholder] -> ([Tensor] -> StmtT m Tensor) -> StmtT m Function
 function n plh fbody = do
   Function <$> do
     (\x -> assign_ (PFunc (Name n)) x >> pure (TenId (Name n))) =<< do
       scope $ do
         plhs <- map TenId <$> (forM plh $ assignN PTensor "plh" . TenPlh)
-        bres <- fbody plhs
+        Tensor bres <- fbody (map Tensor plhs)
         res <- assignN PTenTuple "res" (TenTuple (plhs <> [bres]))
         modify $ \s -> s{sc_expr = \te -> TenDef n ((sc_expr s) te)}
         return (TenId res)
 
+data Tensor = Tensor TenExpr
+  deriving(Show,Read,Eq,Ord)
+
 -- | Version of assign where the computation rule is specified for each
 -- Tensor's item
-compute :: (Monad m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m TenExpr
+compute :: (Monad m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m Tensor
 compute se ebody = do
   res <- freshP "computed"
   axis <- freshP "vars"
   axis_dims <- pure $ map (EShapeSlice (ShapeId (shapeDim se) axis)) [0..(shapeDim se)-1]
   assign_ (PTensor res) (TenCompute se (PAxis axis) (ebody axis_dims))
-  return (TenId res)
+  return (Tensor $ TenId res)
 
 -- | Call a function
 call :: TenFuncName -> [TenExpr] -> TenExpr
@@ -150,20 +177,24 @@ modul fns = do
   n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))
   return $ Module fns (TenId n)
 
+axisId :: (Monad m) => Tensor -> Integer -> StmtT m IterVar
+axisId (Tensor t) i = IterVar . EId <$> assignN PIterVar "axis" (TenCall TenAxisId [TenArg t, TenArgInt i])
+
+data IterVar = IterVar Expr
+  deriving(Show,Read,Eq,Ord)
+
 -- | FIXME: Rethink returning expression from statement monad
-axis :: (Monad m) => (DimExpr,DimExpr) -> StmtT m Expr
-axis (a,b) = do
-  n <- assignN PIterVar "axis" (TenCall TenReduceAxis [TenArg $ TenTuple [TenDim a, TenDim b]])
-  return (EId n)
+reduce_axis :: (Monad m) => (DimExpr,DimExpr) -> StmtT m IterVar
+reduce_axis (a,b) = IterVar . EId <$> assignN PIterVar "reduce_axis" (TenCall TenReduceAxis [TenArg $ TenTuple [TenDim a, TenDim b]])
 
 infixr 7 !
 
 class Sliceable a b c | a->c, b->c, a->b where
   (!) :: a -> b -> c
 
-instance Sliceable TenExpr [Expr] Expr where
-  (!) :: TenExpr -> [Expr] -> Expr
-  (!) t sl = ETenSlice t sl
+instance Sliceable Tensor [Expr] Expr where
+  (!) :: Tensor -> [Expr] -> Expr
+  (!) (Tensor t) sl = ETenSlice t sl
 
 instance Sliceable ShapeExpr Integer Expr where
   (!) :: ShapeExpr -> Integer -> Expr
@@ -198,8 +229,9 @@ data Conv2dArgs = Conv2dArgs {
 instance HasDefault Conv2dArgs where
   def = Conv2dArgs (1,1) (1,1) (1,1) TypeFloat32 "conv2d"
 
-conv2d_nchw :: (Monad m) => TenExpr -> TenExpr -> Conv2dArgs -> StmtT m TenExpr
-conv2d_nchw x k Conv2dArgs{..} =
+conv2d_nchw :: (Monad m) => Tensor -> Tensor -> Conv2dArgs -> StmtT m Tensor
+conv2d_nchw (Tensor x) (Tensor k) Conv2dArgs{..} =
+  Tensor <$> do
   assign $ TenCall TenConv2d_NCHW [
     TenArg x, TenArg k,
     TenArg $ TenDim $ DimConst $ fst conv2d_stride,
@@ -219,8 +251,9 @@ data PadArgs = PadArgs {
 instance HasDefault PadArgs where
   def = PadArgs [] [] 0 "pad"
 
-pad :: (Monad m) => TenExpr -> PadArgs -> StmtT m TenExpr
-pad x PadArgs{..} =
+pad :: (Monad m) => Tensor -> PadArgs -> StmtT m Tensor
+pad (Tensor x) PadArgs{..} =
+  Tensor <$> do
   assign $ TenCall TenPad [
     TenArg x,
     TenArg $ TenExpr $ ETuple pad_before,
@@ -245,4 +278,13 @@ pad x PadArgs{..} =
 
 -}
 
+data Schedule = Schedule TenExpr
+  deriving(Show,Read,Eq,Ord)
+
+schedule :: (Monad m) => [Tensor] -> StmtT m Schedule
+schedule ts = Schedule . TenId <$> assignN PSchedule "sched" (TenCall TenSchedule [TenArg $ TenTuple [t|Tensor t<-ts]])
+
+parallel :: (Monad m) => Schedule -> Tensor -> IterVar -> StmtT m ()
+parallel (Schedule s) (Tensor t) (IterVar a) =
+  return () <* assignN PStage "stage" (TenCall TenParallel [TenArg s, TenArg t, TenArg $ TenExpr a])
 
