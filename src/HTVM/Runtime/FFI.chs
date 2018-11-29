@@ -32,7 +32,7 @@ import Data.List (nub)
 import Foreign (ForeignPtr, newForeignPtr, Ptr, Storable(..), alloca,
                 allocaArray, peek, plusPtr, poke, peekArray, pokeArray,
                 castPtr, advancePtr, malloc, mallocArray, FunPtr(..), free,
-                withForeignPtr)
+                withForeignPtr, nullPtr)
 import Foreign.C.Types (CInt, CLong)
 import Foreign.C.String (CString, withCString, peekCAString)
 import System.IO.Unsafe (unsafePerformIO)
@@ -48,6 +48,7 @@ data TVMError =
   | TVMFuncLoadFailed Int String
   | TVMFunCallFailed Int String
   | TVMFunCallBadType Int
+  | TVMCopyFailed Int String
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -97,7 +98,8 @@ type TVMArrayHandle = Ptr TVMTensor_Repr
 -- | Alias for pointer to `TVMArray` aka `DLTensor`.
 type TVMTensor = ForeignPtr TVMTensor_Repr
 
-
+-- | Alias for `TVMStreamHandle`. Not supported via this FFI currently.
+type TVMStreamHandle = Ptr ()
 
 data TVMValue
 
@@ -143,6 +145,26 @@ foreign import ccall unsafe "c_runtime_api.h &TVMArrayFree"
   tvmArrayFree_ :: FunPtr (TVMArrayHandle -> IO ())
 
 
+foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
+  tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMModFree"
+  tvmModFree :: TVMModule -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMModGetFunction"
+  tvmModGetFunction :: TVMModule -> CString -> CInt -> Ptr TVMFunction -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMFuncFree"
+  tvmFuncFree :: TVMFunction -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
+  tvmGetLastError :: IO CString
+
+foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
+  tvmFuncCall :: TVMFunction -> Ptr TVMValue -> Ptr TVMTypeCode -> CInt -> Ptr TVMValue -> Ptr TVMTypeCode -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMArrayCopyFromTo"
+  tvmArrayCopyFromTo :: TVMArrayHandle -> TVMArrayHandle -> TVMStreamHandle -> IO CInt
 
 class TVMIndex i where
   tvmList :: i -> [Integer]
@@ -318,23 +340,17 @@ pokeTensor ft d = do
       x -> do
         fail "Not implemented"
 
-foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
-  tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
 
-foreign import ccall unsafe "c_runtime_api.h TVMModFree"
-  tvmModFree :: TVMModule -> IO CInt
-
-foreign import ccall unsafe "c_runtime_api.h TVMModGetFunction"
-  tvmModGetFunction :: TVMModule -> CString -> CInt -> Ptr TVMFunction -> IO CInt
-
-foreign import ccall unsafe "c_runtime_api.h TVMFuncFree"
-  tvmFuncFree :: TVMFunction -> IO CInt
-
-foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
-  tvmGetLastError :: IO CString
-
-foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
-  tvmFuncCall :: TVMFunction -> Ptr TVMValue -> Ptr TVMTypeCode -> CInt -> Ptr TVMValue -> Ptr TVMTypeCode -> IO CInt
+tensorCopy :: TVMTensor -> TVMTensor -> IO ()
+tensorCopy dst src = do
+  withForeignPtr dst $ \pdst -> do
+  withForeignPtr src $ \psrc -> do
+  ret <- tvmArrayCopyFromTo psrc pdst nullPtr
+  case ret of
+    0 -> return ()
+    e -> do
+      str <- getLastError
+      throwIO (TVMCopyFailed (fromCInt e) str)
 
 -- | Return a string describing the last error issued by TVM runtime
 getLastError :: IO String

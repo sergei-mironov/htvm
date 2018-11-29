@@ -36,6 +36,9 @@ Haskell tools as usual:
 Log
 ===
 
+#### 29.11.2018
+ * Add copyTensor FFI
+
 #### 28.11.2018
  * Start to bind Schedulers
  * Improve monadic API

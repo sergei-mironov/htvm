@@ -110,6 +110,41 @@ main = defaultMain $
         , testProperty "[[Double]]"   $ (gen2 @Double)
         ]
 
+    , testGroup "Copy FFI should work for tensors" $
+        let
+          go :: forall d i e . (TVMData d i e, Eq e, Eq d, Show d) => d -> IO ()
+          go l = do
+            src <- newTensor l KDLCPU 0
+            dst <- newEmptyTensor @e (tensorShape src) KDLCPU 0
+            tensorCopy dst src
+            l2 <- peekTensor dst
+            assertEqual "copy-peek-1" l l2
+            return ()
+
+          flatzero :: [[e]] -> [[e]]
+          flatzero x | length (concat x) == 0 = []
+                     | otherwise = x
+
+          gen1 :: forall e i . (Eq e, Show e, TVMData [e] i e, Arbitrary e) => Property
+          gen1 = forAll (genTensorList1 @e) $ monadicIO . run . go
+
+          gen2 :: forall e i . (Eq e, Show e, TVMData [[e]] i e, Arbitrary e) => Property
+          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero
+        in [
+          testProperty "[Int32]"      $ (gen1 @Int32)
+        , testProperty "[Word32]"     $ (gen1 @Word32)
+        , testProperty "[Float]"      $ (gen1 @Float)
+        , testProperty "[Int64]"      $ (gen1 @Int64)
+        , testProperty "[Word64]"     $ (gen1 @Word64)
+        , testProperty "[Double]"     $ (gen1 @Double)
+        , testProperty "[[Int32]]"    $ (gen2 @Int32)
+        , testProperty "[[Word32]]"   $ (gen2 @Word32)
+        , testProperty "[[Float]]"    $ (gen2 @Float)
+        , testProperty "[[Int64]]"    $ (gen2 @Int64)
+        , testProperty "[[Word64]]"   $ (gen2 @Word64)
+        , testProperty "[[Double]]"   $ (gen2 @Double)
+        ]
+
     , testCase "Compiler (g++ -ltvm) should be available" $ do
         withTmpf "htvm-compiler-test" $ \x -> do
           _ <- compileModuleGen defaultConfig x (ModuleGenSrc undefined "int main() { return 0; }")
