@@ -34,7 +34,7 @@ printShapeExpr se =
     go = printShapeExpr
   in
   case se of
-    ShapeId _ nm -> printName nm
+    ShapeTen te -> "htvm_shape("<> printTenExpr te <> ")"
     ShapeVector de -> "{" <> printDimExpr de <> "}"
     ShapeScalar -> "{}"
     ShapeSum se1 se2 -> "htvm_shape_concat("<> go se1 <> "," <> go se2 <> ")"
@@ -44,6 +44,7 @@ printExprFuncName fn =
   case fn of
     ExprSum -> "tvm::sum"
     ExprOp op -> op
+    ESigmoid -> "tvm::sigmoid"
 
 printExpr :: Expr -> Text
 printExpr e =
@@ -64,6 +65,7 @@ printExpr e =
         _ -> printExprFuncName nm <> "(" <> Text.intercalate "," (map go es) <> ")"
     ETenSlice te es -> printTenExpr te <> "(" <> Text.intercalate "," (map go es) <> ")"
     EShapeSlice se sl -> printShapeExpr se <> "[" <> tshow sl <> "]"
+    ESlice e i -> go e <> "[" <> tshow i <> "]"
     ETuple es -> "{" <> Text.intercalate "," (map go es) <> "}"
 
 printName :: Name -> Text
@@ -103,6 +105,8 @@ printTenFuncName fn =
     TenSchedule -> "htvm_create_schedule"
     TenParallel -> "htvm_parallel"
     TenAxisId -> "htvm_axis_id"
+    TenMatMul -> "topi::matmul"
+    TenElemwise x -> "topi::"<>x
 
 printLayout :: Layout -> Text
 printLayout l =
@@ -184,6 +188,7 @@ printIncludes = do
     line $ "#include <tvm/build_module.h>"
     line $ "#include <topi/broadcast.h>"
     line $ "#include <topi/nn.h>"
+    line $ "#include <topi/elemwise.h>"
     line $ ""
     line $
         "static inline tvm::Array<tvm::Expr> \
@@ -205,6 +210,8 @@ printIncludes = do
         \}"
     line $ "tvm::Stage htvm_parallel(tvm::Schedule s, tvm::Tensor t, tvm::IterVar i) { return s[t->op].parallel(i); }"
     line $ "tvm::IterVar htvm_axis_id(tvm::Tensor t, int i) { return t->op->root_iter_vars()[i]; }"
+    line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Tensor t) { return t->shape; }"
+    line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Array<tvm::Expr> t) { return t; }"
     line $ ""
 
 

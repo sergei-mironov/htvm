@@ -22,6 +22,7 @@ import Data.Text (isInfixOf)
 import Data.Monoid ((<>))
 import System.Directory (getTemporaryDirectory)
 import System.IO.Temp (withTempFile)
+import Prelude
 
 import HTVM.Prelude
 import HTVM
@@ -161,7 +162,7 @@ main = defaultMain $
             stageFunction $ do
               s <- shapevar [10]
               function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-                compute s $ \[i] -> a![i] + b![i]
+                compute s $ \e -> a![e!0] + b![e!0]
         assertBool "dump should contain 'produce' keyword" $ isInfixOf "produce" dump
 
     , testCase "Simple model should work" $
@@ -172,7 +173,7 @@ main = defaultMain $
         withTestModule (do
           s <- shapevar [fromInteger dim0]
           function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-            compute s $ \[i] -> a![i] + b![i]
+            compute s $ \e -> a![e!0] + b![e!0]
           ) $
           \(ModuleLib p _) -> do
             withModule p $ \hmod -> do
@@ -189,7 +190,7 @@ main = defaultMain $
           s <- shapevar [4]
           function "reduce" [("A",float32,s)] $ \[a] -> do
             IterVar r <- reduce_axis (0,3)
-            compute ShapeScalar $ \[] -> esum (a![r], [r])
+            compute ShapeScalar $ \_ -> esum (a![r], [r])
           ) $ \_ -> return ()
 
     , testCase "Conv2d operation should compile" $
@@ -198,7 +199,7 @@ main = defaultMain $
           sa <- shapevar [1,1,10,10]
           sk <- shapevar [1,1,3,3]
           function "reduce" [("A",float32,sa), ("k",float32,sk)] $ \[a,k] -> do
-            conv2d_nchw a k def
+            return $ conv2d_nchw a k def
           ) $ \_ -> return ()
 
     , testCase "Pad operation should compile" $
@@ -206,7 +207,7 @@ main = defaultMain $
         withTestModule (do
           sa <- shapevar [1,1,10,10]
           function "reduce" [("A",float32,sa) ] $ \[a] -> do
-            pad a def{pad_value=33, pad_before=[2,2,2,2]}
+            return $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
           ) $ \_ -> return ()
 
     , testCase "Parallel schedule should compile" $
@@ -214,11 +215,33 @@ main = defaultMain $
         withTestModule (do
           sa <- shapevar [1,1,10,10]
           function "reduce" [("A",float32,sa) ] $ \[a] -> do
-            c <- pad a def{pad_value=33, pad_before=[2,2,2,2]}
+            c <- assign $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
             r <- axisId c 0
             s <- schedule [c]
             parallel s c r
             return c
           ) $ \_ -> return ()
+
+    , testCase "Sigmoid primitive should work" $
+
+        withTestModule (do
+          s <- shapevar [4]
+          function "sigmoid" [("A",float32,s)] $ \[a] -> do
+            c <- assign $ sigmoid a
+            return c
+          ) $
+          \(ModuleLib p _) -> do
+            withModule p $ \hmod -> do
+            withFunction "sigmoid" hmod $ \fmod ->
+              let
+                inp = [1,2,3,4] :: [Float]
+                out = map (\x -> 1.0 / (1.0 + exp (- x))) inp
+              in do
+              a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
+              c <- newEmptyTensor @Float [4] KDLCPU 0
+              callTensorFunction c fmod [a]
+              c_ <- peekTensor c
+              {- FIXME: implement assertEpsilonEquial -}
+              assertEqual "Simple model result" out c_
     ]
 

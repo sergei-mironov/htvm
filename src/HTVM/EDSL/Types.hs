@@ -40,8 +40,9 @@ instance Num DimExpr where
 -- | Shape expressions represents the shape of a tensor, i.e. the number and
 -- size of its dimentions. Rough equivalent of `tvm::Array<Expr>`.
 data ShapeExpr =
-    ShapeId Integer Name     -- ^ Shape id stores the number of dimentions which we should always know at
-                             --   compile time
+    ShapeTen TenExpr
+                             -- ^ Shape extractor. Only valid for `TenPlh` ,
+                             -- `TenCompute` and `TenShape` itself.
   | ShapeVector DimExpr      -- ^ Vector has 1 dimention of some length.
   | ShapeScalar              -- ^ Scalar has 0 dimentions.
   | ShapeSum ShapeExpr ShapeExpr
@@ -49,11 +50,12 @@ data ShapeExpr =
   deriving(Show,Read,Ord,Eq)
 
 -- | Return the number of dimentions of ShapeExpr which is always known at compile time.
-shapeDim :: ShapeExpr -> Integer
-shapeDim (ShapeId ndim _) = ndim
-shapeDim (ShapeVector _) = 1
-shapeDim (ShapeScalar) = 0
-shapeDim (ShapeSum se1 se2) = shapeDim se1 + shapeDim se2
+-- TODO: Move to `Eval.hs` as a generic algorithm
+-- shapeDim :: ShapeExpr -> Integer
+-- shapeDim (ShapeTen ndim _) = ndim
+-- shapeDim (ShapeVector _) = 1
+-- shapeDim (ShapeScalar) = 0
+-- shapeDim (ShapeSum se1 se2) = shapeDim se1 + shapeDim se2
 
 instance Semigroup ShapeExpr where
   (<>) a b = ShapeSum a b
@@ -77,16 +79,19 @@ shape des = undefined
 data ExprFuncName =
     ExprOp Text
   | ExprSum
+  | ESigmoid
   deriving(Show,Read,Ord,Eq)
 
 -- | Scalar expressions
 data Expr =
     EConst Const             -- ^ A constant
   | EId Name                 -- ^ A variable
+  -- | EShape ShapeExpr         -- ^ A shape expression
   | EShapeSlice ShapeExpr Integer
                              -- ^ Access a certain dimention of ShapeExpr
   | ETenSlice TenExpr [Expr] -- ^ Accessing an individual element of a tensor
-  | ECall ExprFuncName [Expr]        -- ^ Call of a function or an operator
+  | ECall ExprFuncName [Expr]-- ^ Call of a function or an operator
+  | ESlice Expr Integer      -- ^ Tuple slicing
   | ETuple [Expr]            -- ^ A tuple of expressions
   deriving(Show,Read,Ord,Eq)
 
@@ -119,18 +124,17 @@ nullArgs = Args Nothing Nothing Nothing
 
 -- | Pattern is a left-hand-side of assignments
 data Pattern =
-    PTensor Name  -- ^ Tensor
-  | PShape Name   -- ^ Array<Expr>
-  | PVar Name     -- ^ Var
-  | PIterVar Name -- ^ IterVar
-  | PFunc Name    -- ^ LoweredFunc
+    PTensor Name             -- ^ Tensor
+  | PShape Name              -- ^ Array<Expr>
+  | PVar Name                -- ^ Var
+  | PIterVar Name            -- ^ IterVar
+  | PFunc Name               -- ^ LoweredFunc
   | PAxis Name
   | PTenTuple Name
   | PFuncTuple Name
   | PSchedule Name
   | PStage Name
   deriving(Show,Read,Ord,Eq)
-
 
 -- | List of valid Tensor-Expression level function names
 data TenFuncName =
@@ -141,15 +145,17 @@ data TenFuncName =
   | TenSchedule
   | TenParallel
   | TenAxisId
+  | TenMatMul
+  | TenElemwise Text
   deriving(Show,Read,Ord,Eq)
 
 -- | `TenCall` receive arguments of the following kinds
 data TenArg =
-    TenArg TenExpr      -- ^ Ordinary argument, another `TenExpr`
-  | TenArgStr Text      -- ^ String argument
-  | TenArgInt Integer   -- ^ Integer argument TODO: remove?
-  | TenArgType Type     -- ^ Type argument
-  | TenArgLayout Layout -- ^ Layout argument
+    TenArg TenExpr           -- ^ Ordinary argument, another `TenExpr`
+  | TenArgStr Text           -- ^ String argument
+  | TenArgInt Integer        -- ^ Integer argument TODO: remove?
+  | TenArgType Type          -- ^ Type argument
+  | TenArgLayout Layout      -- ^ Layout argument
   deriving(Show,Read,Ord,Eq)
 
 -- | Convolution layout
@@ -165,24 +171,24 @@ data Layout = NCHW | NWCN | NHWC
 data TenExpr =
     TenId Name
   | TenPlh Placeholder
-                  -- ^ Placeholder is a disting kind of TenExpr because it
-                  -- refers `Type` and `ShapeExpr` which are not `TenExpr`
+                             -- ^ Placeholder is a disting kind of TenExpr because it
+                             --   refers `Type` and `ShapeExpr` which are not `TenExpr`
   | TenTuple [TenExpr]
   | TenDim DimExpr
   | TenShape ShapeExpr
   | TenExpr Expr
-                  -- ^ We need TenExpr to encode `reduce_axis` calls. It returns
-                  -- sliceable expressions
+                             -- ^ We need TenExpr to encode `reduce_axis` calls. It returns
+                             --   sliceable expressions
   | TenLet Pattern TenExpr TenExpr
   | TenCompute ShapeExpr Pattern Expr
   | TenDef Text TenExpr
-                  -- ^ Name and Expression of function definition.
-                  --   FIXME: TenDef would be redundant in the presence of
-                  --   typechecker.
+                             -- ^ Name and Expression of function definition.
+                             --   FIXME: TenDef would be redundant in the presence of
+                             --   typechecker.
   | TenCall { tc_fname::TenFuncName, tc_args::[TenArg] }
-                  -- ^ Function call.
-                  -- `tc_fname` is the name of a function.
-                  -- `tc_args` is its arguments.
+                             -- ^ Function call.
+                             --   `tc_fname` is the name of a function.
+                             --   `tc_args` is its arguments.
   deriving(Show,Read,Ord,Eq)
 
 

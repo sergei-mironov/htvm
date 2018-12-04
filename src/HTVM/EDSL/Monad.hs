@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE CPP #-}
 module HTVM.EDSL.Monad where
 
 import qualified Data.Text as Text
@@ -91,6 +92,9 @@ stageModuleT s = stage <$> runStmtT initStmtCtx s where
 stageModule :: StmtT Identity Module -> Module
 stageModule = runIdentity . stageModuleT
 
+data Tensor = Tensor TenExpr
+  deriving(Show,Read,Eq,Ord)
+
 assign_ :: (Monad m) => Pattern -> TenExpr -> StmtT m ()
 assign_ p te1 = do
   modify $ \s -> s{sc_expr = \te -> (sc_expr s) (TenLet p te1 te)}
@@ -101,8 +105,8 @@ assignN mkpat prefix te1 = do
   assign_ (mkpat n) te1
   return n
 
-assign :: (Monad m) => TenExpr -> StmtT m TenExpr
-assign te = TenId <$> assignN PTensor "asgn" te
+assign :: (Monad m) => Tensor -> StmtT m Tensor
+assign (Tensor te) = Tensor . TenId <$> assignN PTensor "asgn" te
 
 newtype Function = Function { unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)
@@ -139,18 +143,23 @@ function n plh fbody = do
         modify $ \s -> s{sc_expr = \te -> TenDef n ((sc_expr s) te)}
         return (TenId res)
 
-data Tensor = Tensor TenExpr
-  deriving(Show,Read,Eq,Ord)
+compute' :: ShapeExpr -> Name -> (Expr -> Expr) -> Tensor
+compute' se nm body = Tensor $ TenCompute se (PAxis nm) (body (EId nm))
+
+compute :: (Monad m) => ShapeExpr -> (Expr -> Expr) -> StmtT m Tensor
+compute se ebody = do
+  axis <- freshP "vars"
+  assign $ compute' se axis ebody
 
 -- | Version of assign where the computation rule is specified for each
 -- Tensor's item
-compute :: (Monad m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m Tensor
-compute se ebody = do
-  res <- freshP "computed"
-  axis <- freshP "vars"
-  axis_dims <- pure $ map (EShapeSlice (ShapeId (shapeDim se) axis)) [0..(shapeDim se)-1]
-  assign_ (PTensor res) (TenCompute se (PAxis axis) (ebody axis_dims))
-  return (Tensor $ TenId res)
+-- compute :: (Monad m) => ShapeExpr -> ([Expr] -> Expr) -> StmtT m Tensor
+-- compute se ebody =
+--   let
+--     dims = [0..(shapeDim se)-1]
+--   in do
+--   axis <- freshP "vars"
+--   assign $ compute' (TenShape se) axis (\x -> ebody (map (EShapeSlice x) dims))
 
 -- | Call a function
 call :: TenFuncName -> [TenExpr] -> TenExpr
@@ -168,7 +177,7 @@ dimvar = do
 shapevar :: (Monad m) => [DimExpr] -> StmtT m ShapeExpr
 shapevar de = do
   n <- assignN PShape "shape" (TenShape (foldr1 ShapeSum (map ShapeVector de)))
-  return (ShapeId (toInteger $ length de) n)
+  return (ShapeTen (TenId n))
 
 -- | FIXME: Module returned is only valid in the context of StmtT monad's state.
 -- One should encode this fact in types
@@ -200,6 +209,10 @@ instance Sliceable ShapeExpr Integer Expr where
   (!) :: ShapeExpr -> Integer -> Expr
   (!) t sl = EShapeSlice t sl
 
+instance Sliceable Expr Integer Expr where
+  (!) :: Expr -> Integer -> Expr
+  (!) e i = ESlice e i
+
 
 class HasDefault a where
   def :: a
@@ -229,10 +242,9 @@ data Conv2dArgs = Conv2dArgs {
 instance HasDefault Conv2dArgs where
   def = Conv2dArgs (1,1) (1,1) (1,1) TypeFloat32 "conv2d"
 
-conv2d_nchw :: (Monad m) => Tensor -> Tensor -> Conv2dArgs -> StmtT m Tensor
+conv2d_nchw :: Tensor -> Tensor -> Conv2dArgs -> Tensor
 conv2d_nchw (Tensor x) (Tensor k) Conv2dArgs{..} =
-  Tensor <$> do
-  assign $ TenCall TenConv2d_NCHW [
+  Tensor $ TenCall TenConv2d_NCHW [
     TenArg x, TenArg k,
     TenArg $ TenDim $ DimConst $ fst conv2d_stride,
     TenArg $ TenDim $ DimConst $ snd conv2d_stride,
@@ -251,16 +263,60 @@ data PadArgs = PadArgs {
 instance HasDefault PadArgs where
   def = PadArgs [] [] 0 "pad"
 
-pad :: (Monad m) => Tensor -> PadArgs -> StmtT m Tensor
+pad :: Tensor -> PadArgs -> Tensor
 pad (Tensor x) PadArgs{..} =
-  Tensor <$> do
-  assign $ TenCall TenPad [
-    TenArg x,
-    TenArg $ TenExpr $ ETuple pad_before,
-    TenArg $ TenExpr $ ETuple pad_after,
-    TenArg $ TenExpr $ pad_value,
-    TenArgStr pad_name
+  Tensor $ TenCall TenPad [
+      TenArg x
+    , TenArg $ TenExpr $ ETuple pad_before
+    , TenArg $ TenExpr $ ETuple pad_after
+    , TenArg $ TenExpr $ pad_value
+    , TenArgStr pad_name
     ]
+
+matmul :: Tensor -> Tensor -> Tensor
+matmul (Tensor a) (Tensor b) = Tensor $ TenCall TenMatMul [TenArg a, TenArg b]
+
+op1 op (Tensor a) = Tensor $ TenCall (TenOp op) [TenArg a]
+op2 op (Tensor a) (Tensor b) = Tensor $ TenCall (TenOp op) [TenArg a, TenArg b]
+
+elemwise1 op (Tensor a) = Tensor $ TenCall (TenElemwise op) [TenArg a]
+elemwise2 op (Tensor a) (Tensor b) = Tensor $ TenCall (TenElemwise op) [TenArg a, TenArg b]
+
+instance Num Tensor where
+  (+) = op2 "+"
+  (-) = op2 "-"
+  (*) = op2 "*"
+  negate = op1 "-"
+  abs = elemwise1 "abs"
+  signum = elemwise1 "sign"
+  fromInteger = error "fromInteger is not implemented for Tensor"
+
+instance Fractional Tensor where
+  fromRational = error "fromRational is not implemented for Tensor"
+  (/) = op2 "/"
+
+instance Floating Tensor where
+  pi = error "pi is not defined for Tensor"
+  exp = elemwise1 "exp"
+  log = elemwise1 "log"
+  sqrt = elemwise1 "sqrt"
+  (**) = elemwise2 "pow"
+  logBase = elemwise2 "logBase"
+  sin = elemwise1 "sin"
+  cos = elemwise1 "cos"
+  tan = elemwise1 "tan"
+  asin = elemwise1 "asin"
+  acos = elemwise1 "acos"
+  atan = elemwise1 "atan"
+  sinh = elemwise1 "sinh"
+  cosh = elemwise1 "cosh"
+  tanh = elemwise1 "tanh"
+  asinh = elemwise1 "asinh"
+  acosh = elemwise1 "acosh"
+  atanh = elemwise1 "atanh"
+
+sigmoid :: Tensor -> Tensor
+sigmoid (Tensor t) = compute' (ShapeTen t) (Name "s") (\x -> ECall ESigmoid [ ETenSlice t [EId (Name "s")] ])
 
 {-
  ____       _              _       _
