@@ -1,40 +1,107 @@
+**WORK IN PROGRESS**
+
 HTVM
 ====
 
-*Under construction*
+This project contains an experimental Haskell frontend for [TVM](https://tvm.ai)
+the Machine Learning framework. The goals of the frontend are:
 
-This project is an experimental Haskell binding fot [TVM](https://tvm.ai)
-Machine Learning framework. The project is under development at the moment.
+ 1. Provide EDSL wrappers for defining Machine Learning models in Haskell and
+    compile them using TVM optimizing compiler.
+ 2. Provide C FFI able to run TVM models and marshal data to/from Haskell.
 
-Expected features are:
+Design notes
+------------
 
-* DSL part produce C++ sources of the Machine Learing model by the means of
-  Monadic interface.
-* Compile part provides funtions to compile DSL source into dynamic library
-* Runtime performs evaluation of the model using Haskell-to-C FFI.
+ 1. EDSL is a proof-of-concept. It is implemented in `HTVM.EDSL` modules
+    collection.
+    1. `HTVM.EDSL.Types` module defines AST types which loosely corresponds to
+       `Stmt` and `Expr` class hierarchies of TVM.
+    2. `HTVM.EDSL.Monad` provides monadic interface to AST builders. We favored
+       simplicity over type-safety. We belive that overuse of Haskell type
+       system ruined many good libraries. The interface relies on simple ADTs
+       whenever possible.
+    3. Instead of building computational graph in memory, the interface
+       translates AST to C++ and compiles it using `g++` and `clang` compilers.
+       The translation is done by the `HTVM.EDSL.Printer` and `HTVM.EDSL.Build`
+       modules. The data transformation pipeline goes as follows:
 
+       ```
 
-In future, the C++ may be replaced with explicit AST generation.
+       Monadic    --> AST --> C++ --> Model --> LLVM --> Model
+       Interface   .       .       .  Gen    .  asm   .  Library
+                   .       .       .         .        .
+                   .     Print     .       Print      .
+                  Run             g++               clang
+
+       ```
+    4. We aim at supporting `import tvm` functionality. Adding support for
+       [Relay](https://github.com/dmlc/tvm/issues/1673) is possible (e.g. by
+       implementing Python printer).
+    5. Support for Scheduling is minimal, but should be enhanced in future.
+    6. Support for TOPI is minimal, but should be enhanced in future.
+    7. No targets besides LLVM are supported. Adding them should be as hard as
+       calling them from C++ DSL.
+    8. We plan to support [Tensor-Level AD](https://sea-region.github.com/dmlc/tvm/issues/1996)
+
+    Natural disadvantages of the current approach:
+    - Compilation speed is limited by the speed of `g++`, which is quite slow.
+    - Calling construction-time procedures of TVM is non-trivial.
+
+    The pros are:
+    - Implemented in <300 lines of code. Easy to maintain.
+    - Easy to port to another TVM dialect such as Relay.
+    - No need to debug TVM via Haskell. The problems (they are likely since TVM
+      is in its betas!) may be handled with plain gdb suit.
+
+ 2. C FFI is implemented in `HTVM.Runtime.FFI` module. It does not depend on
+    `HTVM.EDSL` and may be used to run models compiled by other TVM frontends.
+    1. The module provide wrappers to basic `c_runtime_api.h` functions.
+    2. `TVMArray` data is represented as ForeignPtrs to its Haskell
+       representation.
+    3. Currently, HTVM marshals from Haskell vectors and matrices, defined as
+       plain lists. Support for `Data.Array` is planned.
+    4. No backends besides LLVM are tested. Adding them should be quite simple.
 
 Install
 -------
 
 We use development environment specified in [Nix](https://nixos.org/nix)
-language. Nix package manager and tools are expected to be installed on the
-system. To enter the environment, type:
+language. In order to use it, please install the
+[Nix package manager](https://nixos.org/nix/download.html).
+Having Nix manager and `NIX_PATH` set, enter the environment, by running Nix
+development shell from the project's root folder:
 
     $ nix-shell
 
-in the project's main folder. Nix should open development shell with proper
-Haskell packages installed. From this shell, one can run Cabal, Ghc and other
-Haskell tools as usual:
+It should get all the dependencies upon the first run.  Alternatively, it should
+be possible to use other Haskell distributions like
+[Haskell Platform](https://www.haskell.org/platform/).
 
-    (nix-shell) $ cabal configure
-    (nix-shell) $ cabal build
-    (nix-shell) $ cabal repl htvm
+In the development shell it should be possible to use `cabal` to build the
+project.
+
+    $ cabal configure --enable-tests
+    $ cabal build
+
+
+One shoild be able to run tests with:
+
+    $ cabal test
+
+To enter the interactive shell, type
+
+    $ cabal repl htvm
+
+Usage examples may be found in [Tests](./test/Main.hs) and (possibly outdated)
+[Demo](./src/Demo.hs).
 
 Log
 ===
+
+#### 06.12.2018
+ * Support tuples and batchCompute
+ * Improved this README
 
 #### 29.11.2018
  * Add copyTensor FFI
@@ -80,7 +147,7 @@ Log
  * Write FFI stub
 
 #### 05.11.2018
- * Complete the bare-minimun EDSL, implement simple compile routine
+ * Complete the bare-minimum EDSL, implement simple compile routine
 
 #### 25.10.2018
  * Fix assign error. Drop show instance for StmtCtx, unfortunately.
