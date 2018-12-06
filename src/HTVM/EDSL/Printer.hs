@@ -107,6 +107,7 @@ printTenFuncName fn =
     TenAxisId -> "htvm_axis_id"
     TenMatMul -> "topi::matmul"
     TenElemwise x -> "topi::"<>x
+    TenSplit -> "topi::split"
 
 printLayout :: Layout -> Text
 printLayout l =
@@ -123,10 +124,11 @@ printTenExpr te =
     parg arg =
       case arg of
         TenArg e -> go e
-        TenArgStr str -> "\"" <> str <> "\""
-        TenArgType t -> printType t
-        TenArgInt i -> tshow i
-        TenArgLayout l -> printLayout l
+        StrArg str -> "\"" <> str <> "\""
+        TypeArg t -> printType t
+        IntArg i -> tshow i
+        IntsArg is -> "{" <> (Text.intercalate "," (map tshow is)) <> "}"
+        LayoutArg l -> printLayout l
   in
   case te of
     TenPlh (n,ty,s) -> "tvm::placeholder(" <> printShapeExpr s <> "," <> printType ty <> ",\""<>n<>"\")"
@@ -136,10 +138,11 @@ printTenExpr te =
     -- TenAxis (a,b) -> --error "printTenExpr: Axis (aka `tvm::IterVar`) is not implemented"
     --               "tvm::reduce_axis({ " <> printDimExpr a <> "," <> printDimExpr b <> "})"
     TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
+    TenSlice te i -> go te <> "[" <> tshow i <> "]"
     TenDim s -> printDimExpr s
     TenShape s -> printShapeExpr s
     TenExpr e -> printExpr e
-    TenCompute sh p e -> "tvm::compute(" <> printShapeExpr sh <> ", tvm::FCompute([=](" <> printPattern p <> ") { return " <> printExpr e <> "; }))"
+    TenCompute sh p e -> "tvm::compute(" <> printShapeExpr sh <> ", tvm::FBatchCompute([=](" <> printPattern p <> ") { return tvm::Array<tvm::Expr>(" <> printExpr e <> "); }))"
     TenDef n te ->
       execWriter $ do
         line $ "({"
@@ -189,6 +192,7 @@ printIncludes = do
     line $ "#include <topi/broadcast.h>"
     line $ "#include <topi/nn.h>"
     line $ "#include <topi/elemwise.h>"
+    line $ "#include <topi/transform.h>"
     line $ ""
     line $
         "static inline tvm::Array<tvm::Expr> \

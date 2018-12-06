@@ -7,7 +7,7 @@
 module Main where
 
 import Test.Tasty (TestTree, testGroup, defaultMain)
-import Test.Tasty.HUnit (testCase, assertBool, assertEqual, (@?=))
+import Test.Tasty.HUnit (Assertion, HasCallStack, testCase, assertBool, assertEqual, (@?=))
 import Test.Tasty.QuickCheck (testProperty)
 import Test.QuickCheck (property, conjoin, choose, suchThat, forAll, sublistOf,
                         label, classify, whenFail, counterexample, elements,
@@ -52,6 +52,19 @@ withTestModule mf act =
         stageModule $ do
           f <- mf
           modul [f]
+
+
+class EpsilonEqual a where
+  epsilonEqual :: Rational -> a -> a -> Bool
+
+instance EpsilonEqual Float where epsilonEqual eps a b = abs (a - b) < fromRational eps
+instance EpsilonEqual Double where epsilonEqual eps a b = abs (a - b) < fromRational eps
+instance EpsilonEqual a => EpsilonEqual [a] where
+  epsilonEqual eps a b =
+    length a == length b && (all (uncurry (epsilonEqual eps)) (a`zip`b))
+
+assertEpsilonEqual :: (EpsilonEqual a, HasCallStack) => String -> Rational -> a -> a -> Assertion
+assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 
 main :: IO ()
 main = defaultMain $
@@ -241,7 +254,15 @@ main = defaultMain $
               c <- newEmptyTensor @Float [4] KDLCPU 0
               callTensorFunction c fmod [a]
               c_ <- peekTensor c
-              {- FIXME: implement assertEpsilonEquial -}
-              assertEqual "Simple model result" out c_
+              assertEpsilonEqual "Simple model result" 1e-5 out c_
+
+    , testCase "Split primitive should compile" $
+
+        withTestModule (do
+          sa <- shapevar [2,4]
+          function "reduce" [("A",float32,sa) ] $ \[a] -> do
+            c <- assign $ split a [1] 0
+            return (c!0)
+          ) $ \_ -> return ()
     ]
 

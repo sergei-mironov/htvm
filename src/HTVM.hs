@@ -7,5 +7,4 @@ module HTVM (
 
 import HTVM.EDSL
 import HTVM.Runtime
-import HTVM.IR
 

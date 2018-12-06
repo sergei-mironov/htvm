@@ -42,8 +42,6 @@ library
     , HTVM.EDSL.Printer
     , HTVM.EDSL.Build
     , HTVM.EDSL
-    , HTVM.IR.Types
-    , HTVM.IR
     , HTVM.Runtime.FFI
     , HTVM.Runtime
     , HTVM.Prelude

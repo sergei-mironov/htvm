@@ -20,7 +20,7 @@ data DimExpr =
     DimConst Integer
   | DimId Name
   | DimCall Name [DimExpr]
-  | DimCtr Text              -- ^ Dim variable constructor `tvm::var`
+  | DimCtr Text              -- ^ Dim constructor aka `tvm::var`
   deriving(Show,Read,Ord,Eq)
 
 instance Num DimExpr where
@@ -123,6 +123,7 @@ nullArgs :: Args
 nullArgs = Args Nothing Nothing Nothing
 
 -- | Pattern is a left-hand-side of assignments
+-- FIXME: Separate type codes from Name binding
 data Pattern =
     PTensor Name             -- ^ Tensor
   | PShape Name              -- ^ Array<Expr>
@@ -147,15 +148,17 @@ data TenFuncName =
   | TenAxisId
   | TenMatMul
   | TenElemwise Text
+  | TenSplit
   deriving(Show,Read,Ord,Eq)
 
 -- | `TenCall` receive arguments of the following kinds
 data TenArg =
     TenArg TenExpr           -- ^ Ordinary argument, another `TenExpr`
-  | TenArgStr Text           -- ^ String argument
-  | TenArgInt Integer        -- ^ Integer argument TODO: remove?
-  | TenArgType Type          -- ^ Type argument
-  | TenArgLayout Layout      -- ^ Layout argument
+  | StrArg Text              -- ^ String argument
+  | IntArg Integer           -- ^ Integer argument TODO: remove?
+  | IntsArg [Integer]        -- ^ Integer argument TODO: remove?
+  | TypeArg Type             -- ^ Type argument
+  | LayoutArg Layout         -- ^ Layout argument
   deriving(Show,Read,Ord,Eq)
 
 -- | Convolution layout
@@ -174,10 +177,11 @@ data TenExpr =
                              -- ^ Placeholder is a disting kind of TenExpr because it
                              --   refers `Type` and `ShapeExpr` which are not `TenExpr`
   | TenTuple [TenExpr]
+  | TenSlice TenExpr Integer -- ^ Slice `TenTuple`
   | TenDim DimExpr
   | TenShape ShapeExpr
   | TenExpr Expr
-                             -- ^ We need TenExpr to encode `reduce_axis` calls. It returns
+                             -- ^ We need TenExpr to encode `reduce_axis` results. It returns
                              --   sliceable expressions
   | TenLet Pattern TenExpr TenExpr
   | TenCompute ShapeExpr Pattern Expr
