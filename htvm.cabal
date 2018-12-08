@@ -1,5 +1,10 @@
 name:                htvm
 synopsis:            TVM bindings.
+description:
+    This library provides interface to TVM Runtime, and experimental
+    EDSL for building models with TVM.
+
+homepage:            https://github.com/grwlf/htvm
 version:             0.1.0.0
 license:             GPL-3
 license-file:        LICENSE
@@ -74,3 +79,6 @@ test-suite test
   ghc-options:
     -Wall -Wno-unused-imports
 
+source-repository head
+  type:     git
+  location: https://github.com/grwlf/htvm
