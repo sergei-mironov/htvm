@@ -1,4 +1,5 @@
 name:                htvm
+synopsis:            TVM bindings.
 version:             0.1.0.0
 license:             GPL-3
 license-file:        LICENSE
