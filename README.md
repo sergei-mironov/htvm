@@ -1,10 +1,10 @@
 HTVM
 ====
 
-This project contains Haskell runtime and experimental frontend for
+HTVM is a library which provides Haskell runtime and experimental frontend for
 [TVM](https://tvm.ai) the Machine Learning framework.
 
-**WORK IN PROGRESS**
+**The project is under development and is not ready for use**
 
 
 TVM in a nutshell
@@ -13,18 +13,20 @@ TVM in a nutshell
 [TVM](https://tvm.ai) framework extends Halide [(link)](https://halide.io)
 principles to the Machine earning domain. It offeres (a) EDSLs for defining ML
 models (b) import facilities for translating models from other frameworks
-such as TensorFlow and (c) compiler to compile them to binary code for a variety
-of supported platforms, including GPUs, FPGAs and even WebAssembly. DSLs for C++
-and Python are best supported and also there are some support for Java, Go and
-Rust languages.
+such as TensorFlow and (c) compiler to binary code for a variety of supported
+platforms, including LLVM (x86, arm), CUDA, OpenCL, Vulcan, ROCm, FPGAs and even
+WebAssembly (note: level of support may vary).  DSLs for C++ and Python are best
+supported and also there are some support for Java, Go and Rust languages.
 
 Originally, TVM aimed at increasing speed of model's inference by providing a
 rich set of optimizing primitives (called 'schedules'). At the same time it had
 little support for training models. Recently, proposals of adding training
-functionality were added.
+functionality were [added](https://sea-region.github.com/dmlc/tvm/issues/1996).
+
+TVM aims at compiling ML models in highly optimized binary code.
 
 Important parts of TVM are:
-  * `tvm` itself as a core library providing `compute` interface.
+  * `tvm` is a core library providing `compute` interface.
   * `topi` is a tensor operations collection. Most of the middle-layer
     primitives such as `matmul`, `conv2d` and `softmax` are defined there.
   * `relay` is a high-level library written in Python, providing
@@ -35,28 +37,34 @@ Important parts of TVM are:
 HTVM goals
 ----------
 
-HTVM allows users to run models from Haskell programs and a way to define
-such models. That is, its goals are:
+This project provides Haskell bindings for:
 
- 1. To provide FFI to TVM C Runtime, making it possible to run ML models from
+ 1. TVM C Runtime, which makes it possible to run ML models from
     Haskell programs
- 2. To provide a Haskell EDSL for defining and compiling Machine Learning models
-    using TVM optimizing compiler.
+ 2. Proof-of-concept EDSL for defining Machine Learning models in Haskell
+
+Usage
+-----
+
+TVM, gcc, llvm should be installed.
+TODO: Briefly describe how to install TVM (which is not hard), provide Demo code.
 
 Design notes
 ------------
 
-### TVM FFI
+### TVM C Runtime
 
-TVM FFI is a Haskell package, linked to `libtvm_runtime.so` library. This library
-contains functionality, required to load and run ML models produced by TVM.
+FFI for TVM C Runtime library is a Haskell package, linked to
+`libtvm_runtime.so`. This library contains functionality, required to load and
+run ML code produced by TVM.
 
  1. The module provide wrappers to `c_runtime_api.h` functions.
- 2. `TVMArray` data is represented as ForeignPtrs to its Haskell
-    representation.
- 3. Currently, HTVM marshals from Haskell vectors and matrices, defined as
-    plain lists. Support for `Data.Array` is planned.
- 4. No backends besides LLVM are tested. Adding them should be quite simple.
+ 2. `TVMArray` is the main type describing Tensors in TVM. It is represented as
+    ForeignPtr to internal representation and a set of accessor functions.
+ 3. Currently, HTVM can marshal data from Haskell lists. Support for
+    `Data.Array` is planned.
+ 4. No backends besides LLVM are tested. Adding them should not be hard and is
+    on the TODO list.
 
 ### TVM Haskell EDSL
 
@@ -92,14 +100,11 @@ Monadic    --> AST --> C++ --> Model --> LLVM --> Model --> Runtime FFI
 Interface   .       .       .  Gen    .  asm   .  Library
             .       .       .         .        .
             .     Print     .       Print      .
-           Run             g++               clang
+           Run    C++      g++               clang
 
 ```
 
-### Pros and Cons
-
-Natural disadvantages of the current approach:
-
+Known disadvantages of C++ printing approach are:
 - **Compilation speed is limited by the speed of `g++`, which is slow.** Gcc is
   used to compile C++ to binary which may take as long as 5 seconds. Little may
   be done about that without changing approaches. One possible way to overcome
