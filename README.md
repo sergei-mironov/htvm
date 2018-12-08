@@ -1,67 +1,142 @@
-**WORK IN PROGRESS**
-
 HTVM
 ====
 
-This project contains an experimental Haskell frontend for [TVM](https://tvm.ai)
-the Machine Learning framework. The goals of the frontend are:
+This project contains Haskell runtime and experimental frontend for
+[TVM](https://tvm.ai) the Machine Learning framework.
 
- 1. Provide EDSL wrappers for defining Machine Learning models in Haskell and
-    compile them using TVM optimizing compiler.
- 2. Provide C FFI able to run TVM models and marshal data to/from Haskell.
+**WORK IN PROGRESS**
+
+
+TVM in a nutshell
+-----------------
+
+[TVM](https://tvm.ai) framework extends Halide [(link)](https://halide.io)
+principles to the Machine earning domain. It offeres (a) EDSLs for defining ML
+models (b) an import facilities for translating models from other frameworks
+such as TensorFlow and (c) compiler to compile them to binary code for a variety
+of supported platforms, including GPUs, FPGAs and even WebAssembly. DSLs for C++
+and Python are best supported and also there are some support for Java, Go and
+Rust languages.
+
+Originally, TVM aimed at increasing speed of model's inference by providing a
+rich set of optimizing primitives (called *schedules*). At the same time it had
+little support for training models. Recently, proposals of adding training
+functionality were added.
+
+Important parts of TVM are:
+  * `tvm` itself as a core library providing `compute` interface.
+  * `topi` is a tensor operations collection. Most of the middle-layer
+    primitives such as `matmul`, `conv2d` and `softmax` are defined there.
+  * `relay` is a high-level library written in Python, providing
+    functional-style interface and its own typechecker. Currently, relay is
+    under active development and beyond the scope of HTVM.
+  * `nnvm` is another high-level wrapper in Python, which is deprecated.
+
+HTVM goals
+----------
+
+HTVM allows users to run models from Haskell programs and a way to define
+such models. That is, its goals are:
+
+ 1. To provide FFI to TVM C Runtime, making it possible to run ML models from
+    Haskell programs
+ 2. To provide a Haskell EDSL for defining and compiling Machine Learning models
+    using TVM optimizing compiler.
 
 Design notes
 ------------
 
- 1. EDSL is a proof-of-concept. It is implemented in `HTVM.EDSL` modules
-    collection.
-    1. `HTVM.EDSL.Types` module defines AST types which loosely corresponds to
-       `Stmt` and `Expr` class hierarchies of TVM.
-    2. `HTVM.EDSL.Monad` provides monadic interface to AST builders. We favored
-       simplicity over type-safety. We belive that overuse of Haskell type
-       system ruined many good libraries. The interface relies on simple ADTs
-       whenever possible.
-    3. Instead of building computational graph in memory, the interface
-       translates AST to C++ and compiles it using `g++` and `clang` compilers.
-       The translation is done by the `HTVM.EDSL.Printer` and `HTVM.EDSL.Build`
-       modules. The data transformation pipeline goes as follows:
+### TVM FFI
 
-       ```
+TVM FFI is a Haskell package, linked to `libtvm_runtime.so` library. This library
+contains functionality, required to load and run ML models produced by TVM.
 
-       Monadic    --> AST --> C++ --> Model --> LLVM --> Model
-       Interface   .       .       .  Gen    .  asm   .  Library
-                   .       .       .         .        .
-                   .     Print     .       Print      .
-                  Run             g++               clang
+ 1. The module provide wrappers to `c_runtime_api.h` functions.
+ 2. `TVMArray` data is represented as ForeignPtrs to its Haskell
+    representation.
+ 3. Currently, HTVM marshals from Haskell vectors and matrices, defined as
+    plain lists. Support for `Data.Array` is planned.
+ 4. No backends besides LLVM are tested. Adding them should be quite simple.
 
-       ```
-    4. We aim at supporting `import tvm` functionality. Adding support for
-       [Relay](https://github.com/dmlc/tvm/issues/1673) is possible (e.g. by
-       implementing Python printer).
-    5. Support for Scheduling is minimal, but should be enhanced in future.
-    6. Support for TOPI is minimal, but should be enhanced in future.
-    7. No targets besides LLVM are supported. Adding them should be as hard as
-       calling them from C++ DSL.
-    8. We plan to support [Tensor-Level AD](https://sea-region.github.com/dmlc/tvm/issues/1996)
+### TVM Haskell EDSL
 
-    Natural disadvantages of the current approach:
-    - Compilation speed is limited by the speed of `g++`, which is quite slow.
-    - Calling construction-time procedures of TVM is non-trivial.
+EDSL has a proof-of-concept status. It may be used to declare ML models in
+Haskell, convert them to TVM IR and finally compile.  Later, compiled model may be
+loaded and run with Haskell FFI or with any other runtime supported by TVM.
 
-    The pros are:
-    - Implemented in <300 lines of code. Easy to maintain.
-    - Easy to port to another TVM dialect such as Relay.
-    - No need to debug TVM via Haskell. The problems (they are likely since TVM
-      is in its betas!) may be handled with plain gdb suit.
+Contrary to usual practices, we don't manipulate TVM IR by calling TVM functions
+internally. Instead, we build AST in Haskell and print it to C++ program. After
+that we compile the program with common instruments. This approach has its pros and
+cons, which are described below.
 
- 2. C FFI is implemented in `HTVM.Runtime.FFI` module. It does not depend on
-    `HTVM.EDSL` and may be used to run models compiled by other TVM frontends.
-    1. The module provide wrappers to basic `c_runtime_api.h` functions.
-    2. `TVMArray` data is represented as ForeignPtrs to its Haskell
-       representation.
-    3. Currently, HTVM marshals from Haskell vectors and matrices, defined as
-       plain lists. Support for `Data.Array` is planned.
-    4. No backends besides LLVM are tested. Adding them should be quite simple.
+ 1. `HTVM.EDSL.Types` module defines AST types which loosely corresponds to
+    `Stmt` and `Expr` class hierarchies of TVM.
+ 2. `HTVM.EDSL.Monad` provides monadic interface to AST builders. We favored
+    simplicity over type-safety. We belive that overuse of Haskell type system
+    ruined many good libraries. The interface relies on simple ADTs whenever
+    possible.
+ 3. `HTVM.EDSL.Print` contain funcions which print AST to C++ program of Model
+    Generator.
+ 4. `HTVM.EDSL.Build` provides instruments to compile and run the model
+    generator by executing `g++` and `clang` compilers:
+    * The Model Generator program builds TVM IR and performes target code
+      generation. In HTVM, we support LLVM target, but more targets may be added.
+    * We execute `clang` to compile LLVM into x86 '.so' library. Resulting
+      library may be loaded and executed by the Runtime code.
+
+The whole data transformation pipeline goes as follows:
+
+```
+
+Monadic    --> AST --> C++ --> Model --> LLVM --> Model --> Runtime FFI
+Interface   .       .       .  Gen    .  asm   .  Library
+            .       .       .         .        .
+            .     Print     .       Print      .
+           Run             g++               clang
+
+```
+
+### Pros and Cons
+
+Natural disadvantages of the current approach:
+
+- **Compilation speed is limited by the speed of `g++`, which is slow.** Gcc is
+  used to compile C++ to binary which may take as long as 5 seconds. Little may
+  be done about that without changing approaches. One possible way to overcome
+  this limitation would be to provide direct FFI to TVM IR like
+  [Halide-hs](https://github.com/cchalmers/halide-hs) does for Halide.
+  Unfortunately, this approach has its own downsides:
+  * Low-level IR API is not as stable as its high-level counterpart
+  * TVM is in its early stages and sometimes crashes. FFI to IR would provide no
+    isolation from this.
+- **Calling construction-time procedures of TVM is non-trivial.** This is a
+  consequence of previous limitation. For example, TVM may calculate Tensor
+  shape in runtime and use it immediately to define new Tensors. In order to
+  that in Haskell we would need to compile and run C++ program which is possible
+  by slow. We try to avoid calling construction-time procedures.
+- **User may face weird C++ errors**. TVM is quite a low-level library which
+  offers little type-checking, so user may write bad programs easily. Other high
+  level TVM wrappers like Relay in Python, does provide their own typecheckers
+  to catch errors earlier. HTVM offers no typechecker currently but it is
+  certainly possible to write one. Contributions are welcome!
+
+The pros of this approach are:
+- C++ printer is implemented in less than 300 lines of code. Easy to maintain.
+- Easy to port to another TVM dialect such as Relay.
+- Isolation from TVM crashes. Memory problems of TVM IR will be translated to error
+  messages in Haskell.
+
+Future plans
+------------
+
+ * We aim at supporting basic `import tvm` and `import topi` functionality.
+ * Support for Scheduling is minimal, but should be enhanced in future.
+ * Support for TOPI is minimal, but should be enhanced in future.
+ * No targets besides LLVM are supported. Adding them should be as simple as
+   calling them from C++ DSL.
+ * We plan to support [Tensor-Level AD](https://sea-region.github.com/dmlc/tvm/issues/1996)
+ * Adding support for [Relay](https://github.com/dmlc/tvm/issues/1673) is also
+   possible but may require some efforts like writing Python printer.
 
 Install
 -------
