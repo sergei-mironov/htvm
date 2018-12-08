@@ -12,14 +12,14 @@ TVM in a nutshell
 
 [TVM](https://tvm.ai) framework extends Halide [(link)](https://halide.io)
 principles to the Machine earning domain. It offeres (a) EDSLs for defining ML
-models (b) an import facilities for translating models from other frameworks
+models (b) import facilities for translating models from other frameworks
 such as TensorFlow and (c) compiler to compile them to binary code for a variety
 of supported platforms, including GPUs, FPGAs and even WebAssembly. DSLs for C++
 and Python are best supported and also there are some support for Java, Go and
 Rust languages.
 
 Originally, TVM aimed at increasing speed of model's inference by providing a
-rich set of optimizing primitives (called *schedules*). At the same time it had
+rich set of optimizing primitives (called 'schedules'). At the same time it had
 little support for training models. Recently, proposals of adding training
 functionality were added.
 
