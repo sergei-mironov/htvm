@@ -175,7 +175,7 @@ main = defaultMain $
             stageFunction $ do
               s <- shapevar [10]
               function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-                compute s $ \e -> a![e!0] + b![e!0]
+                compute s $ \e -> a![e] + b![e]
         assertBool "dump should contain 'produce' keyword" $ isInfixOf "produce" dump
 
     , testCase "Simple model should work" $
@@ -186,7 +186,7 @@ main = defaultMain $
         withTestModule (do
           s <- shapevar [fromInteger dim0]
           function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-            compute s $ \e -> a![e!0] + b![e!0]
+            compute s $ \e -> a![e] + b![e]
           ) $
           \(ModuleLib p _) -> do
             withModule p $ \hmod -> do
@@ -203,7 +203,7 @@ main = defaultMain $
           s <- shapevar [4]
           function "reduce" [("A",float32,s)] $ \[a] -> do
             IterVar r <- reduce_axis (0,3)
-            compute ShapeScalar $ \_ -> esum (a![r], [r])
+            compute ShapeScalar $ \(_::Expr) -> esum (a![r], [r])
           ) $ \_ -> return ()
 
     , testCase "Conv2d operation should compile" $

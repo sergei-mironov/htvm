@@ -13,7 +13,6 @@
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-
 module HTVM.Runtime.FFI where
 
 import qualified Data.Array as Array
@@ -59,7 +58,6 @@ instance Exception TVMError
 
 {# enum DLDataTypeCode as TVMDataTypeCode {upcaseFirstLetter} deriving(Eq) #}
 {# enum DLDeviceType as TVMDeviceType {upcaseFirstLetter} deriving(Eq) #}
-
 {# enum TVMDeviceExtType {upcaseFirstLetter} deriving(Eq) #}
 {# enum TVMTypeCode {upcaseFirstLetter} deriving(Eq) #}
 
@@ -75,6 +73,7 @@ type TVMShapeIndex = {# type tvm_index_t #}
 -- | Representation of device identifiers
 type TVMDeviceId = Int
 
+-- | TODO: document
 data TVMContext
 
 instance Storable TVMContext where
@@ -83,7 +82,7 @@ instance Storable TVMContext where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
--- | Tensor representation, see `DLTensor`
+-- | Representation of `DLTensor` structure which is the Tensor container
 data TVMTensor_Repr
 
 instance Storable TVMTensor_Repr where
@@ -92,15 +91,17 @@ instance Storable TVMTensor_Repr where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
--- | Alias for `TVMArrayHandle`
+-- | Alias for `TVMArrayHandle`, which internally is the same as the pointer to
+-- DLTensor
 type TVMArrayHandle = Ptr TVMTensor_Repr
 
--- | Alias for pointer to `TVMArray` aka `DLTensor`.
+-- | Main runtime representation of Tensors
 type TVMTensor = ForeignPtr TVMTensor_Repr
 
 -- | Alias for `TVMStreamHandle`. Not supported via this FFI currently.
 type TVMStreamHandle = Ptr ()
 
+-- | TVMValue represents function argument, accepted by TVM functions.
 data TVMValue
 
 instance Storable TVMValue where

@@ -119,30 +119,43 @@ instance TensorLike Tensor where toTenExpr (Tensor te) = te; fromTenExpr = Tenso
 assign :: forall m a . (TensorLike a, Monad m) => a -> StmtT m a
 assign a = fromTenExpr <$> assignN (toPattern @a) "asgn" (toTenExpr a)
 
+-- | Function represents TVM expression which is a valid `Module`-function definition
+-- Note that Module-functions ate not first-class objects in TVM (TODO: check
+-- that fact).
 newtype Function = Function { unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
+-- | Module contains a valid module expression and a set of module functions
 data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
-data ModuleGenSrc = ModuleGenSrc Module Text
+-- | ModuleGenSrc is a C++ sources Module generator
+data ModuleGenSrc = ModuleGenSrc { mgen_mod :: Module, mgen_src :: Text }
   deriving(Show,Read,Eq,Ord)
 
-data ProgramSrc = ProgramSrc Text
+-- | Represents C++ sources arbitrary program
+data ProgramSrc = ProgramSrc { prog_src :: Text }
   deriving(Show,Read,Eq,Ord)
 
+-- | Represent path to arbitrary program's binary
 data ProgramBin = ProgramBin FilePath
   deriving(Show,Read,Eq,Ord)
 
+-- | Represent path to Module generator binary
 data ModuleGen = ModuleGen FilePath Module
   deriving(Show,Read,Eq,Ord)
 
+-- | LLVM Assembly produced by Module generator, along with source Module
 data Assembly = Assembly Module String
   deriving(Show,Read,Eq,Ord)
 
+-- | Path to compiled Module along with its source expression
 data ModuleLib = ModuleLib FilePath Module
   deriving(Show,Read,Eq,Ord)
 
+-- | Define a module function. Accepts its name @n@, Placeholder definitions
+-- @plh@ which become a type of arguments and a lambda function @fbody@ defining
+-- the body.  List passed to @fbody@ would have same length as @plh@.
 function :: (Monad m) => Text -> [Placeholder] -> ([Tensor] -> StmtT m Tensor) -> StmtT m Function
 function n plh fbody = do
   Function <$> do
@@ -167,10 +180,21 @@ batchCompute se tbody = do
   axis <- freshP "bcomp"
   assign (Tuple $ batchCompute' se axis tbody)
 
-compute :: (Monad m) => ShapeExpr -> (Expr -> Expr) -> StmtT m Tensor
-compute se ebody = do
+uniCompute :: (Monad m) => ShapeExpr -> (Expr -> Expr) -> StmtT m Tensor
+uniCompute se ebody = do
   axis <- freshP "comp"
   assign (Tensor $ flip TenSlice 0 $ batchCompute' se axis ((\x -> [x]) . ebody))
+
+-- | Specialize computes to different number of dimentsions
+class Computable a where
+  compute :: (Monad m) => ShapeExpr -> (a -> Expr) -> StmtT m Tensor
+
+-- TODO: assert the number of dimentions in @se@ equals to number of elements in axis tuple
+instance Computable (Expr) where compute se f = uniCompute se (\e -> f (e!0))
+instance Computable (Expr,Expr) where compute se f = uniCompute se (\e -> f (e!0,e!1))
+instance Computable (Expr,Expr,Expr) where compute se f = uniCompute se (\e -> f (e!0,e!1,e!2))
+instance Computable (Expr,Expr,Expr,Expr) where compute se f = uniCompute se (\e -> f (e!0,e!1,e!2,e!3))
+instance Computable (Expr,Expr,Expr,Expr,Expr) where compute se f = uniCompute se (\e -> f (e!0,e!1,e!2,e!3,e!4))
 
 -- | Version of assign where the computation rule is specified for each
 -- Tensor's item
@@ -220,7 +244,7 @@ data IterVar = IterVar Expr
 reduce_axis :: (Monad m) => (DimExpr,DimExpr) -> StmtT m IterVar
 reduce_axis (a,b) = IterVar . (\(TenId n) -> EId n) <$> assignN PIterVar "reduce_axis" (TenCall TenReduceAxis [TenArg $ TenTuple [TenDim a, TenDim b]])
 
-infixr 7 !
+infixr 8 !
 
 class Sliceable a b c | a->b, a->c where
   (!) :: a -> b -> c
@@ -345,6 +369,9 @@ matmul (Tensor a) (Tensor b) = Tensor $ TenCall TenMatMul [TenArg a, TenArg b]
 
 sigmoid :: Tensor -> Tensor
 sigmoid = elemwise1 "sigmoid"
+
+relu :: Tensor -> Tensor
+relu = elemwise1 "relu"
 
 split :: Tensor -> [Integer] -> Integer -> Tuple
 split (Tensor a) indices axis = Tuple $ TenCall TenSplit [TenArg a, IntsArg indices, IntArg axis]

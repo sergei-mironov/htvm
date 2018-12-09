@@ -20,17 +20,18 @@ demo1 =
       sequence [
           function "foo" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
             s2 <- dimvar
-            c <- compute s $ \[i] -> a![i] + b![i]
-            c <- compute s $ \[i] -> a![i] + b![i]
-            d <- compute (s<>s) $ \[i,j] -> c![s!0] * c![i+j]
-            f <- assign $ call "topi::relu<double>" nullArgs [d]
+            c <- compute s $ \i -> a![i] + b![i]
+            c <- compute s $ \i -> a![i] + b![i]
+            d <- compute (s<>s) $ \(i,j) -> c![s!0] * c![i+j]
+            f <- assign $ relu d
             return f
 
         , function "bar" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-            c <- compute s $ \[i] -> a![i] * b![i]
+            c <- compute s $ \i -> a![i] * b![i]
             return c
         ]
 
+{-
 demo3 :: IO TenExpr
 demo3 = do
   stageTenExpr $ do
@@ -40,6 +41,7 @@ demo3 = do
       compute s $ \[i,j] -> a![i,10]
     return $ unFunction f
 
+-}
 
 -- demo4 :: IO TenExpr
 -- demo4 = do
@@ -70,8 +72,8 @@ demo3 = do
 --         return c
 --     ]
 
-putLib m = tputStrLn =<< prettyCpp =<< printProgram <$> m
+printLib m = tputStrLn =<< (prettyCpp . mgen_src . printModuleGen) =<< m
 
-writeLib m = twriteFile "htvm.cpp" =<< prettyCpp =<< printProgram <$> m
+-- writeLib m = twriteFile "htvm.cpp" =<< prettyCpp =<< printPrinter <$> m
 
-putTenExpr te = tputStrLn =<< prettyCpp =<< printTenExpr <$> te
+putTenExpr te = tputStrLn =<< (prettyCpp $ printTenExpr te)

@@ -46,25 +46,33 @@ Important parts of TVM are:
 Features and goals
 ------------------
 
-Combined TVM/HTVM-stack features:
-
-  * Not many dependencies: TVM is much easier to build than other frameworks (hi
-    TensorFlow). Models are compiled to binary code, no interpreters required.
-  * High performance: HTVM uses TVM, which is designed to provide optimized code.
-  * Simple Runtime FFI
-
-HTVM is going to provide Haskell bindings for:
+HTVM is going to provide:
 
  1. TVM C Runtime, which makes it possible to run ML models from Haskell
     programs.
- 2. Experimental EDSL for defining and optimizing Machine Learning Programs in
-    Haskell.
+ 2. Experimental EDSL for building TVM programs in Haskell.
 
+Combined TVM/HTVM-stack features are:
+
+### FFI
+
+  * Not many dependencies: TVM is much easier to build than other frameworks (hi
+    TensorFlow). Models are compiled to binary code, no interpreters required.
+  * High performance: HTVM uses TVM, which is designed for performance.
+  * Simplicity
+
+### EDSL
+
+  * Experimental status
+  * Simplicity again. Pure ADT-based design.
+  * Not much type-safety yet. Expect errors in runtime. Typechecker may be
+    implemented in future.
 
 Usage
 -----
 
 TVM, gcc, llvm should be installed.
+
 TODO: Briefly describe how to install TVM (which is not hard), provide Demo code.
 
 Design notes

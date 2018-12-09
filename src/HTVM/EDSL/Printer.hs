@@ -193,6 +193,7 @@ printIncludes = do
     line $ "#include <topi/nn.h>"
     line $ "#include <topi/elemwise.h>"
     line $ "#include <topi/transform.h>"
+    line $ "#include <tvm/autodiff.h>"
     line $ ""
     line $
         "static inline tvm::Array<tvm::Expr> \
