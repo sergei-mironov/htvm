@@ -268,7 +268,7 @@ main = defaultMain $
             return (c!0)
           ) $ \_ -> return ()
 
-    , testCase "Differentiate should compile" $
+    , testCase "Differentiate should work" $
 
         withTestModule (do
           sa <- shapevar [1]

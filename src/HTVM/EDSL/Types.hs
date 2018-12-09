@@ -5,10 +5,11 @@ module HTVM.EDSL.Types where
 import Data.Monoid
 import Data.Text(Text)
 
--- | Name is the string convertable to valid C/C++ identifier
+-- | Name represents valid C/C++ identifier
 newtype Name = Name { n_get :: Text }
   deriving(Show,Read,Ord,Eq,Semigroup,Monoid)
 
+-- | Const encodes valid C/C++ constants
 data Const =
     CInt Integer
   | CFloat32 Float
@@ -32,11 +33,6 @@ instance Num DimExpr where
   signum = error "signum is undefined for DimExpr"
   fromInteger = DimConst
 
--- -- | Axis represents iterator running through the range supplied. Equivalent of
--- -- `tvm::IterVar`.
--- data Axis = Axis Name (DimExpr,DimExpr)
---   deriving(Show,Read,Ord,Eq)
-
 -- | Shape expressions represents the shape of a tensor, i.e. the number and
 -- size of its dimentions. Rough equivalent of `tvm::Array<Expr>`.
 data ShapeExpr =
@@ -49,44 +45,20 @@ data ShapeExpr =
                              -- ^ Concatenation on shapes
   deriving(Show,Read,Ord,Eq)
 
--- | Return the number of dimentions of ShapeExpr which is always known at compile time.
--- TODO: Move to `Eval.hs` as a generic algorithm
--- shapeDim :: ShapeExpr -> Integer
--- shapeDim (ShapeTen ndim _) = ndim
--- shapeDim (ShapeVector _) = 1
--- shapeDim (ShapeScalar) = 0
--- shapeDim (ShapeSum se1 se2) = shapeDim se1 + shapeDim se2
-
 instance Semigroup ShapeExpr where
   (<>) a b = ShapeSum a b
 
-shape :: [DimExpr] -> ShapeExpr
-shape des = undefined
-
--- | Convert ShapeExpr in flattern form, where each list itme represents a
--- dimention, either of known size or unknown at compile time. Empty list
--- represents a shape of scalar.
--- FIXME: This function is impossible
--- shapeFlattern :: ShapeExpr -> [Either DimExpr Integer]
--- shapeFlattern sh =
---   case sh of
---     ShapeId 1 n -> [Left n]
---     ShapeId x n -> error "shapeFlattern: don't know how to represent multidimentional shape variables"
---     ShapeVector x -> [Right x]
---     ShapeScalar -> []
---     ShapeSum a b -> shapeFlattern a <> shapeFlattern b
-
+-- | A registry of expression-level function names
 data ExprFuncName =
     ExprOp Text
   | ExprSum
   | ESigmoid
   deriving(Show,Read,Ord,Eq)
 
--- | Scalar expressions
+-- | Scalar expressions, equivalent of `tvm::Expr`
 data Expr =
     EConst Const             -- ^ A constant
   | EId Name                 -- ^ A variable
-  -- | EShape ShapeExpr         -- ^ A shape expression
   | EShapeSlice ShapeExpr Integer
                              -- ^ Access a certain dimention of ShapeExpr
   | ETenSlice TenExpr [Expr] -- ^ Accessing an individual element of a tensor
@@ -104,25 +76,18 @@ instance Num Expr where
   signum = error "signum is undefined"
   fromInteger = EConst . CInt
 
+-- | Representation of tvm type codes
 data Type =
     TypeFloat32
   | TypeInt32
   | TypeTensor Type ShapeExpr
   deriving(Show,Read,Ord,Eq)
 
+float32 :: Type
 float32 = TypeFloat32
 
--- | Common arguments to various functions
-data Args = Args {
-    a_name :: Maybe Name
-  , a_shape :: Maybe ShapeExpr
-  , a_type :: Maybe Type
-  } deriving(Show,Read,Ord,Eq)
-
-nullArgs :: Args
-nullArgs = Args Nothing Nothing Nothing
-
--- | Pattern is a left-hand-side of assignments
+-- | Pattern represents left-hand-side of C/C++ assignments
+--
 -- FIXME: Separate type codes from Name binding
 data Pattern =
     PTensor Name             -- ^ Tensor
@@ -137,7 +102,7 @@ data Pattern =
   | PStage Name
   deriving(Show,Read,Ord,Eq)
 
--- | List of valid Tensor-Expression level function names
+-- | A registry of tensor-level function names
 data TenFuncName =
     TenOp Text
   | TenReduceAxis
@@ -152,7 +117,7 @@ data TenFuncName =
   | TenDifferentiate
   deriving(Show,Read,Ord,Eq)
 
--- | `TenCall` receive arguments of the following kinds
+-- | Kinds of arguments received by `TenCall`
 data TenArg =
     TenArg TenExpr           -- ^ Ordinary argument, another `TenExpr`
   | StrArg Text              -- ^ String argument
@@ -173,14 +138,17 @@ data Layout = NCHW | NWCN | NHWC
 --   * We don't keep Type as a part of TenExpr since in theory we shouldn't need
 --     it (assuming the typechecker is present)
 data TenExpr =
-    TenId Name
+    TenId Name               -- ^ Identifier
   | TenPlh Placeholder
                              -- ^ Placeholder is a disting kind of TenExpr because it
                              --   refers `Type` and `ShapeExpr` which are not `TenExpr`
+                             --
+                             --   FIXME: Replace `TenPlh` and `TenDef` with a
+                             --   function representation TenFun
   | TenTuple [TenExpr]
   | TenSlice TenExpr Integer -- ^ Slice `TenTuple`
-  | TenDim DimExpr
-  | TenShape ShapeExpr
+  | TenDim DimExpr           -- ^ Dimention expression
+  | TenShape ShapeExpr       -- ^ Shape expression
   | TenExpr Expr
                              -- ^ We need TenExpr to encode `reduce_axis` results. It returns
                              --   sliceable expressions
@@ -197,14 +165,6 @@ data TenExpr =
   deriving(Show,Read,Ord,Eq)
 
 
+-- | Placeholder collects information about entry or exit points of TVM programs
 type Placeholder = (Text,Type,ShapeExpr)
-
--- pls_name :: Placeholder -> Name
--- pls_name (nm,_,_) = nm
-
--- data Axis = Axis {aExpr :: TenExpr}
---   deriving(Read,Show,Eq,Ord)
-
-
-
 
