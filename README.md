@@ -2,26 +2,34 @@ HTVM
 ====
 
 HTVM is a library which provides Haskell runtime and experimental frontend for
-[TVM](https://tvm.ai) the Machine Learning framework.
+[TVM](https://tvm.ai/about) the Machine Learning framework.
 
-**The project is under development and is not ready for use**
+**Both HTVM and TVM are under development. While TVM is somewhat stable, we
+don't recommend to use HTVM for serious applications**
 
+**[GitHub repository](https://github.com/grwlf/htvm) may contain newer version of HTVM**
 
 TVM in a nutshell
 -----------------
 
-[TVM](https://tvm.ai) framework extends Halide [(link)](https://halide.io)
-principles to the Machine earning domain. It offeres (a) EDSLs for defining ML
-models (b) import facilities for translating models from other frameworks
-such as TensorFlow and (c) compiler to binary code for a variety of supported
+TVM framework extends [Halide](https://halide-lang.org) principles to the Machine
+Learning domain. It offeres (a) EDSLs for defining and hand-optimizing ML models
+(b) export/import facilities for translating models from other frameworks such
+as TensorFlow and (c) compiler to binary code for a variety of supported
 platforms, including LLVM (x86, arm), CUDA, OpenCL, Vulcan, ROCm, FPGAs and even
-WebAssembly (note: level of support may vary).  DSLs for C++ and Python are best
+WebAssembly (note: level of support may vary). DSLs for C++ and Python are best
 supported and also there are some support for Java, Go and Rust languages.
 
+[Watch Halide introductionary video](https://youtu.be/3uiEyEKji0M)
+
+[Read more on TVM site](https://tvm.ai/about)
+
 Originally, TVM aimed at increasing speed of model's inference by providing a
-rich set of optimizing primitives (called 'schedules'). At the same time it had
-little support for training models. Recently, proposals of adding training
-functionality were [added](https://sea-region.github.com/dmlc/tvm/issues/1996).
+rich set of optimizing primitives called
+['schedules'](https://docs.tvm.ai/tutorials/language/schedule_primitives.html#sphx-glr-tutorials-language-schedule-primitives-py)).
+At the same time it had little support for training models. Recently,
+training-related proposals were
+[added](https://sea-region.github.com/dmlc/tvm/issues/1996).
 
 TVM aims at compiling ML models in highly optimized binary code.
 
@@ -32,16 +40,26 @@ Important parts of TVM are:
   * `relay` is a high-level library written in Python, providing
     functional-style interface and its own typechecker. Currently, relay is
     under active development and beyond the scope of HTVM.
-  * `nnvm` is another high-level wrapper in Python, which is deprecated.
+  * `nnvm` is another high-level wrapper in Python, now deprecated in favor of
+    `relay`.
 
-HTVM goals
-----------
+Features and goals
+------------------
 
-This project provides Haskell bindings for:
+Combined TVM/HTVM-stack features:
 
- 1. TVM C Runtime, which makes it possible to run ML models from
-    Haskell programs
- 2. Proof-of-concept EDSL for defining Machine Learning models in Haskell
+  * Not many dependencies: TVM is much easier to build than other frameworks (hi
+    TensorFlow). Models are compiled to binary code, no interpreters required.
+  * High performance: HTVM uses TVM, which is designed to provide optimized code.
+  * Simple Runtime FFI
+
+HTVM is going to provide Haskell bindings for:
+
+ 1. TVM C Runtime, which makes it possible to run ML models from Haskell
+    programs.
+ 2. Experimental EDSL for defining and optimizing Machine Learning Programs in
+    Haskell.
+
 
 Usage
 -----
@@ -137,7 +155,9 @@ Future plans
  * We aim at supporting basic `import tvm` and `import topi` functionality.
  * Support for Scheduling is minimal, but should be enhanced in future.
  * Support for TOPI is minimal, but should be enhanced in future.
- * No targets besides LLVM are supported. Adding them should be as simple as
+ * No targesource-repository head
+  type:     git
+  location: https://github.com/tensorflow/haskellts besides LLVM are supported. Adding them should be as simple as
    calling them from C++ DSL.
  * We plan to support [Tensor-Level AD](https://sea-region.github.com/dmlc/tvm/issues/1996)
  * Adding support for [Relay](https://github.com/dmlc/tvm/issues/1673) is also
