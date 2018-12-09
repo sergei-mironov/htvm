@@ -376,6 +376,10 @@ relu = elemwise1 "relu"
 split :: Tensor -> [Integer] -> Integer -> Tuple
 split (Tensor a) indices axis = Tuple $ TenCall TenSplit [TenArg a, IntsArg indices, IntArg axis]
 
+
+differentiate :: Tensor -> [Tensor] -> Tuple
+differentiate (Tensor a) ts = Tuple $ TenCall TenDifferentiate [TenArg a, TenArg $ TenTuple [t|(Tensor t)<-ts]]
+
 {-
  ____       _              _       _
 / ___|  ___| |__   ___  __| |_   _| | ___

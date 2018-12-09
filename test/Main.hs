@@ -66,6 +66,9 @@ instance EpsilonEqual a => EpsilonEqual [a] where
 assertEpsilonEqual :: (EpsilonEqual a, HasCallStack) => String -> Rational -> a -> a -> Assertion
 assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 
+epsilon :: Rational
+epsilon = 1e-5
+
 main :: IO ()
 main = defaultMain $
     testGroup "All" $ reverse [
@@ -254,7 +257,7 @@ main = defaultMain $
               c <- newEmptyTensor @Float [4] KDLCPU 0
               callTensorFunction c fmod [a]
               c_ <- peekTensor c
-              assertEpsilonEqual "Simple model result" 1e-5 out c_
+              assertEpsilonEqual "Simple model result" epsilon out c_
 
     , testCase "Split primitive should compile" $
 
@@ -264,5 +267,23 @@ main = defaultMain $
             c <- assign $ split a [1] 0
             return (c!0)
           ) $ \_ -> return ()
+
+    , testCase "Differentiate should compile" $
+
+        withTestModule (do
+          sa <- shapevar [1]
+          function "difftest" [("A",float32,sa) ] $ \[a] -> do
+            c <- compute sa $ \i -> (a![i])*(a![i])
+            dc <- assign $ differentiate c [a]
+            return (dc!0)
+          ) $
+          \(ModuleLib p _) -> do
+            withModule p $ \hmod -> do
+            withFunction "difftest" hmod $ \fmod -> do
+              a <- newTensor @[Float] [3.0] KDLCPU 0
+              c <- newEmptyTensor @Float [1,1] KDLCPU 0
+              callTensorFunction c fmod [a]
+              c_ <- peekTensor c
+              assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
     ]
 

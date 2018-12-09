@@ -108,6 +108,7 @@ printTenFuncName fn =
     TenMatMul -> "topi::matmul"
     TenElemwise x -> "topi::"<>x
     TenSplit -> "topi::split"
+    TenDifferentiate -> "htvm_differentiate"
 
 printLayout :: Layout -> Text
 printLayout l =
@@ -217,6 +218,7 @@ printIncludes = do
     line $ "tvm::IterVar htvm_axis_id(tvm::Tensor t, int i) { return t->op->root_iter_vars()[i]; }"
     line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Tensor t) { return t->shape; }"
     line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Array<tvm::Expr> t) { return t; }"
+    line $ "tvm::Array<tvm::Tensor> htvm_differentiate(tvm::Tensor t, tvm::Array<tvm::Tensor> a){ return tvm::ir::Differentiate(t,a)->result; }"
     line $ ""
 
 

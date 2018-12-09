@@ -149,6 +149,7 @@ data TenFuncName =
   | TenMatMul
   | TenElemwise Text
   | TenSplit
+  | TenDifferentiate
   deriving(Show,Read,Ord,Eq)
 
 -- | `TenCall` receive arguments of the following kinds

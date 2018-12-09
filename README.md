@@ -46,7 +46,7 @@ Important parts of TVM are:
 Features and goals
 ------------------
 
-HTVM is going to provide:
+In HTVM we are going to provide:
 
  1. TVM C Runtime, which makes it possible to run ML models from Haskell
     programs.
@@ -68,12 +68,57 @@ Combined TVM/HTVM-stack features are:
   * Not much type-safety yet. Expect errors in runtime. Typechecker may be
     implemented in future.
 
-Usage
------
+Install
+-------
 
-TVM, gcc, llvm should be installed.
+### Installing dependencies
 
-TODO: Briefly describe how to install TVM (which is not hard), provide Demo code.
+1. Make sure you have `g++` and `llvm` installed.
+
+2. Build tvm from development repository located at
+   https://github.com/grwlf/tvm, branch autodiff
+
+   ```
+   $ git clone https://github.com/grwlf/tvm
+   $ cd tvm
+   $ git checkout origin/autodiff
+   .. follow up with the tvm build procedure
+   ```
+
+### Building HTVM
+
+We use development environment specified in [Nix](https://nixos.org/nix)
+language. In order to open it, please install the
+[Nix package manager](https://nixos.org/nix/download.html).
+Having Nix manager and `NIX_PATH` set, enter the environment, by running Nix
+development shell from the project's root folder:
+
+    $ nix-shell
+
+It should get all the Haskell dependencies upon the first run.  Alternatively,
+it should be possible to run Haskell distributions like [Haskell
+Platform](https://www.haskell.org/platform/).
+
+After nix-shell or Haskell distibution is ready, run `cabal` to build the
+project.
+
+    $ cabal configure --enable-tests
+    $ cabal build
+
+To run tests, execute the test suite. At this point you will need `g++`, `clang`
+and `tvm` of the correct version (see above).
+
+    $ cabal test
+
+To enter the interactive shell, type
+
+    $ cabal repl htvm
+    *HTVM.EDSL.Types> :lo Demo
+
+Usage examples may be found in [Tests](./test/Main.hs) and (possibly outdated)
+[Demo](./src/Demo.hs).
+
+TODO: Update demo, write more examples
 
 Design notes
 ------------
@@ -168,36 +213,4 @@ Future plans
  * We plan to support [Tensor-Level AD](https://sea-region.github.com/dmlc/tvm/issues/1996)
  * Adding support for [Relay](https://github.com/dmlc/tvm/issues/1673) is also
    possible but may require some efforts like writing Python printer.
-
-Install
--------
-
-We use development environment specified in [Nix](https://nixos.org/nix)
-language. In order to use it, please install the
-[Nix package manager](https://nixos.org/nix/download.html).
-Having Nix manager and `NIX_PATH` set, enter the environment, by running Nix
-development shell from the project's root folder:
-
-    $ nix-shell
-
-It should get all the dependencies upon the first run.  Alternatively, it should
-be possible to use other Haskell distributions like
-[Haskell Platform](https://www.haskell.org/platform/).
-
-In the development shell it should be possible to use `cabal` to build the
-project.
-
-    $ cabal configure --enable-tests
-    $ cabal build
-
-One should be able to run tests with:
-
-    $ cabal test
-
-To enter the interactive shell, type
-
-    $ cabal repl htvm
-
-Usage examples may be found in [Tests](./test/Main.hs) and (possibly outdated)
-[Demo](./src/Demo.hs).
 
