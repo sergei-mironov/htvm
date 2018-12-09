@@ -1,6 +1,10 @@
 Log
 ===
 
+#### 09.12.2018
+ * Improved README.md
+ * Started autodiff integration
+
 #### 06.12.2018
  * Support tuples and batchCompute
  * Improved this README
