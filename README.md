@@ -20,7 +20,7 @@ platforms, including LLVM (x86, arm), CUDA, OpenCL, Vulcan, ROCm, FPGAs and even
 WebAssembly (note: level of support may vary). DSLs for C++ and Python are best
 supported and also there are some support for Java, Go and Rust languages.
 
-[Watch Halide introductionary video](https://youtu.be/3uiEyEKji0M)
+[Watch Halide introduction video](https://youtu.be/3uiEyEKji0M)
 
 [Read more on TVM site](https://tvm.ai/about)
 
@@ -101,12 +101,12 @@ cons, which are described below.
     simplicity over type-safety. We belive that overuse of Haskell type system
     ruined many good libraries. The interface relies on simple ADTs whenever
     possible.
- 3. `HTVM.EDSL.Print` contain funcions which print AST to C++ program of Model
+ 3. `HTVM.EDSL.Print` contain functions which print AST to C++ program of Model
     Generator.
  4. `HTVM.EDSL.Build` provides instruments to compile and run the model
     generator by executing `g++` and `clang` compilers:
-    * The Model Generator program builds TVM IR and performes target code
-      generation. In HTVM, we support LLVM target, but more targets may be added.
+    * The Model Generator program builds TVM IR and generates LLVM assembly.
+      In HTVM, we support LLVM target, but more targets may be added later.
     * We execute `clang` to compile LLVM into x86 '.so' library. Resulting
       library may be loaded and executed by the Runtime code.
 
@@ -155,10 +155,8 @@ Future plans
  * We aim at supporting basic `import tvm` and `import topi` functionality.
  * Support for Scheduling is minimal, but should be enhanced in future.
  * Support for TOPI is minimal, but should be enhanced in future.
- * No targesource-repository head
-  type:     git
-  location: https://github.com/tensorflow/haskellts besides LLVM are supported. Adding them should be as simple as
-   calling them from C++ DSL.
+ * No targets besides LLVM are supported. Adding them should be as simple as
+   adding them to C++ DSL.
  * We plan to support [Tensor-Level AD](https://sea-region.github.com/dmlc/tvm/issues/1996)
  * Adding support for [Relay](https://github.com/dmlc/tvm/issues/1673) is also
    possible but may require some efforts like writing Python printer.
@@ -184,8 +182,7 @@ project.
     $ cabal configure --enable-tests
     $ cabal build
 
-
-One shoild be able to run tests with:
+One should be able to run tests with:
 
     $ cabal test
 
