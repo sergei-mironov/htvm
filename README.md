@@ -12,8 +12,8 @@ don't recommend to use HTVM for serious applications**
 TVM in a nutshell
 -----------------
 
-TVM framework extends [Halide](https://halide-lang.org) principles to the Machine
-Learning domain. It offeres (a) EDSLs for defining and hand-optimizing ML models
+TVM framework extends [Halide](https://halide-lang.org) principles to Machine
+Learning domain. It offers (a) EDSLs for defining and hand-optimizing ML models
 (b) export/import facilities for translating models from other frameworks such
 as TensorFlow and (c) compiler to binary code for a variety of supported
 platforms, including LLVM (x86, arm), CUDA, OpenCL, Vulcan, ROCm, FPGAs and even
