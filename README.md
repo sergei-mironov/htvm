@@ -5,7 +5,7 @@ HTVM is a library which provides Haskell runtime and experimental frontend for
 [TVM](https://tvm.ai/about) the Machine Learning framework.
 
 **Both HTVM and TVM are under development. While TVM is somewhat stable, we
-don't recommend to use HTVM for serious applications**
+don't recommend to use HTVM in applications currently**
 
 **[GitHub repository](https://github.com/grwlf/htvm) may contain newer version of HTVM**
 
@@ -48,8 +48,7 @@ Features and goals
 
 In HTVM we are going to provide:
 
- 1. TVM C Runtime, which makes it possible to run ML models from Haskell
-    programs.
+ 1. C Runtime, which makes it possible to run TVM models from Haskell.
  2. Experimental EDSL for building TVM programs in Haskell.
 
 Combined TVM/HTVM-stack features are:
@@ -58,8 +57,8 @@ Combined TVM/HTVM-stack features are:
 
   * Not many dependencies: TVM is much easier to build than other frameworks (hi
     TensorFlow). Models are compiled to binary code, no interpreters required.
-  * High performance: HTVM uses TVM, which is designed for performance.
-  * Simplicity
+  * Performance: HTVM uses TVM, which is designed with performace in mind.
+  * Simplicity of code.
 
 ### EDSL
 

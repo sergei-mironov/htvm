@@ -1,6 +1,9 @@
 Log
 ===
 
+#### 10.12.2018
+ * Bind Differentiate primitive, test works
+
 #### 09.12.2018
  * Improved README.md
  * Started autodiff integration
