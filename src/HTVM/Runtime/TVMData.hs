@@ -15,6 +15,7 @@ module HTVM.Runtime.TVMData where
 import qualified Data.Array as Array
 
 import Control.Exception (throwIO)
+import Control.Monad (when)
 import Control.Arrow ((***))
 import Data.Array (Array(..))
 import Data.Word (Word8,Word16,Word32,Word64)
@@ -170,6 +171,8 @@ peekTensor ft = do
 pokeTensor :: forall d i e b . (TVMData d i e)
   => TVMTensor -> d -> IO ()
 pokeTensor ft d = do
+  when (tensorShape ft /= tvmDataShape d) $
+    throwIO (PokeShapeMismatch (tensorShape ft) (tvmDataShape d))
   withForeignPtr ft $ \pt -> do
     case tensorDevice ft of
       KDLCPU -> do

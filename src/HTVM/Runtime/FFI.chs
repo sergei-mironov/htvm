@@ -32,6 +32,7 @@ data TVMError =
   | TVMFunCallFailed Int String
   | TVMFunCallBadType Int
   | TVMCopyFailed Int String
+  | PokeShapeMismatch [Integer] [Integer]
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -75,11 +76,13 @@ instance Storable TVMTensor_Repr where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
--- | Alias for `TVMArrayHandle`, which internally is the same as the pointer to
--- DLTensor
+-- | Alias for C type `TVMArrayHandle`, which is internally defined as a
+-- pointer to DLTensor.
 type TVMArrayHandle = Ptr TVMTensor_Repr
 
--- | Main runtime representation of Tensors
+-- | Main runtime representation of Tensors in TVM. Tensors contain multy-
+-- dimentional arrays of numbers. Their data is stored either in main CPU memory
+-- or on the computing device, e.g. in the memory of GPU card.
 type TVMTensor = ForeignPtr TVMTensor_Repr
 
 -- | Alias for `TVMStreamHandle`. Not supported via this FFI currently.
@@ -133,15 +136,15 @@ setTensor ft pv pc = do
 foreign import ccall unsafe "c_runtime_api.h TVMArrayAlloc"
   tvmArrayAlloc
     :: Ptr TVMShapeIndex
-                     -- shape
-    -> CInt           -- ndim,
-    -> CInt           -- dtype_code,
-    -> CInt           -- dtype_bits,
-    -> CInt           -- dtype_lanes,
-    -> CInt           -- device_type,
-    -> CInt           -- device_id,
+                      -- ^ shape
+    -> CInt           -- ^ ndim,
+    -> CInt           -- ^ dtype_code,
+    -> CInt           -- ^ dtype_bits,
+    -> CInt           -- ^ dtype_lanes,
+    -> CInt           -- ^ device_type,
+    -> CInt           -- ^ device_id,
     -> Ptr TVMArrayHandle
-                      -- DLTensor* out
+                      -- ^ DLTensor* out
     -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMArrayFree"
@@ -210,6 +213,7 @@ tensorShape ft = unsafePerformIO $ do
 tensorData :: TVMTensor -> IO (Ptr ())
 tensorData p = withForeignPtr p {# get DLTensor->data #}
 
+-- | Copy data from Tensor to Tensor
 tensorCopy :: TVMTensor -> TVMTensor -> IO ()
 tensorCopy dst src = do
   withForeignPtr dst $ \pdst -> do
@@ -220,7 +224,6 @@ tensorCopy dst src = do
     e -> do
       str <- getLastError
       throwIO (TVMCopyFailed (fromCInt e) str)
-
 
 -- | Return a string describing the last error issued by TVM runtime
 getLastError :: IO String
