@@ -13,7 +13,7 @@ import Test.QuickCheck (property, conjoin, choose, suchThat, forAll, sublistOf,
                         label, classify, whenFail, counterexample, elements,
                         vectorOf, Gen, Testable, frequency, sized, Property,
                         arbitrary, Arbitrary, listOf)
-import Test.QuickCheck.Monadic (forAllM, monadicIO, run, assert)
+import Test.QuickCheck.Monadic (forAllM, monadicIO, run, assert, wp)
 
 import Control.Monad (when)
 import Data.Functor.Foldable (Fix(..), Recursive(..), Corecursive(..))
@@ -65,6 +65,23 @@ instance EpsilonEqual a => EpsilonEqual [a] where
 
 assertEpsilonEqual :: (EpsilonEqual a, HasCallStack) => String -> Rational -> a -> a -> Assertion
 assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
+
+
+{-
+testFunction :: forall d1 i1 e1 d2 i2 e2 . (TVMData d1 i1 e1, TVMData d2 i2 e2) =>
+  [Integer] -> ([Integer] -> Stmt Function) -> (d1 -> d2) -> PropertyM IO a
+testFunction ishape func_ut func_checker =
+  withTestModule (func_ut ishape) $
+    \(ModuleLib p m) -> do
+      withModule p $ \hmod -> do
+      withFunction (funcName $ head $ modFuncs $ m) hmod $ \fmod -> do
+        a <- liftIO $ newEmptyTensor @e1 ishape KDLCPU 0
+        c <- liftIO $ newEmptyTensor @e2 oshape KDLCPU 0
+        forAllM arbitrary $ \x -> do
+          liftIO $ callTensorFunction c fmod [a]
+          c_ <- liftIO $ peekTensor c
+          assertEpsilonEqual "Function result" epsilon [[6.0::Float]] c_
+-}
 
 epsilon :: Rational
 epsilon = 1e-5
@@ -175,13 +192,13 @@ main = defaultMain $
         do
         dump <-
           printFunction defaultConfig =<< do
-            stageFunction $ do
+            stageFunctionT $ do
               s <- shapevar [10]
               function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
                 compute s $ \e -> a![e] + b![e]
         assertBool "dump should contain 'produce' keyword" $ isInfixOf "produce" dump
 
-    , testCase "Simple model should work" $
+    , testCase "Simple model should work, withModule/withFunction case" $
         let
           dim0 = 4 :: Integer
           fname = "vecadd"
@@ -199,6 +216,25 @@ main = defaultMain $
               c <- newEmptyTensor @Float [dim0] KDLCPU 0
               callTensorFunction c fmod [a,b]
               assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
+
+    , testCase "Simple model should work, loadModule/loadFunction case" $
+        let
+          dim0 = 4 :: Integer
+          fname = "vecadd"
+        in do
+        withTestModule (do
+          s <- shapevar [fromInteger dim0]
+          function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+            compute s $ \e -> a![e] + b![e]
+          ) $
+          \(ModuleLib mod_path _) -> do
+            m <- loadModule mod_path
+            f <- loadFunction "vecadd" m
+            a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
+            b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
+            c <- newEmptyTensor @Float [dim0] KDLCPU 0
+            callTensorFunction c f [a,b]
+            assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
     , testCase "Reduce axis operation should compile" $
 

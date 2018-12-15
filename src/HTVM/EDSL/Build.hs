@@ -72,7 +72,7 @@ stage (ModuleGen fp mod) =
   hPutStr stderr err
   case ec of
     ExitFailure ec -> do
-      error $ "stage failed, exit code " <> show ec
+      error $ "stage: model generator failed, exit code " <> show ec
     ExitSuccess -> do
       return (Assembly mod out)
 
@@ -85,7 +85,7 @@ compileModel fp asm@(Assembly mod a) = do
   hPutStr stdout out
   case ec of
     ExitFailure ec -> do
-      error $ "compileModel failed, exit code " <> show ec
+      error $ "compileModel: g++ failed, exit code " <> show ec
     ExitSuccess -> do
       return (ModuleLib fp mod)
 
@@ -110,13 +110,13 @@ buildModule cc fp m = do
 
 
 printFunction :: CompileConfig -> Function -> IO Text
-printFunction cc f@(Function te) = do
+printFunction cc f@(Function _ te) = do
   withTmpf "printer" $ \f -> do
     ProgramBin prg <- compileProgram cc f (printPrinter te)
     let exec_fp = if isAbsolute prg then prg else "./" <> prg
     (ec,out,err) <- readProcessWithExitCode exec_fp [] []
     case ec of
       ExitFailure ec -> do
-        error $ "compileModel failed, exit code " <> show ec
+        error $ "printFunction: compileProgram failed, exit code " <> show ec
       ExitSuccess -> return (tpack out)
 

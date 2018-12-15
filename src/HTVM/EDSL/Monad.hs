@@ -84,11 +84,11 @@ stageTenExpr :: (Monad m) => StmtT m TenExpr -> m TenExpr
 stageTenExpr s = stage <$> runStmtT initStmtCtx s where
   stage (te,StmtCtx{..}) = sc_expr te
 
-stageFunction :: (Monad m) => StmtT m Function -> m Function
-stageFunction fe = Function <$> stageTenExpr (unFunction <$> fe)
+stageFunctionT :: (Monad m) => StmtT m Function -> m Function
+stageFunctionT fe = stage <$> runStmtT initStmtCtx fe where
+  stage (Function n te,StmtCtx{..}) = Function n (sc_expr te)
 
 -- | Returned module contains all its definitions.
--- FIXME: Encode self-contained Modules differently.
 stageModuleT :: (Monad m) => StmtT m Module -> m Module
 stageModuleT s = stage <$> runStmtT initStmtCtx s where
   stage (Module funcs te,StmtCtx{..}) = Module funcs (sc_expr te)
@@ -122,7 +122,7 @@ assign a = fromTenExpr <$> assignN (toPattern @a) "asgn" (toTenExpr a)
 -- | Function represents TVM expression which is a valid `Module`-function definition
 -- Note that Module-functions ate not first-class objects in TVM (TODO: check
 -- that fact).
-newtype Function = Function { unFunction :: TenExpr }
+data Function = Function { funcName :: Text, unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
 -- | Module contains a valid module expression and a set of module functions
@@ -158,7 +158,7 @@ data ModuleLib = ModuleLib FilePath Module
 -- the body.  List passed to @fbody@ would have same length as @plh@.
 function :: (Monad m) => Text -> [Placeholder] -> ([Tensor] -> StmtT m Tensor) -> StmtT m Function
 function n plh fbody = do
-  Function <$> do
+  Function <$> pure n <*> do
     (\x -> assign_ (PFunc (Name n)) x >> pure (TenId (Name n))) =<< do
       scope $ do
         plhs <- forM plh $ assignN PTensor "plh" . TenPlh

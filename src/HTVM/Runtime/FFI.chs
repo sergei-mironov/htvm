@@ -1,8 +1,5 @@
--- | Module defines wrappers for DLPack messages which are used by TVM to pass
--- to/from models
+-- | DLPack message wrappers to pass data to/from TVM models
 
--- {-# OPTIONS_GHC -fwarn-unused-imports #-}
--- {-# OPTIONS_GHC -fwarn-missing-signatures #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -31,7 +28,7 @@ import Data.List (nub)
 import Foreign (ForeignPtr, newForeignPtr, Ptr, Storable(..), alloca,
                 allocaArray, peek, plusPtr, poke, peekArray, pokeArray,
                 castPtr, advancePtr, malloc, mallocArray, FunPtr(..), free,
-                withForeignPtr, nullPtr)
+                withForeignPtr, nullPtr, newForeignPtr_)
 import Foreign.C.Types (CInt, CLong)
 import Foreign.C.String (CString, withCString, peekCAString)
 import System.IO.Unsafe (unsafePerformIO)
@@ -110,11 +107,32 @@ instance Storable TVMValue where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
+data TVMModule_Repr
+
+instance Storable TVMModule_Repr where
+  sizeOf _ = {# sizeof TVMModuleHandle #}
+  alignment _ = {# alignof TVMModuleHandle #}
+  peek = error "peek is undefined for TVMModuleHandle"
+  poke = error "poke is undefined for TVMModuleHandle"
+
 -- | Alias for void* used as Module handle
-type TVMModule = Ptr ()
+type TVMModuleHandle = Ptr TVMModule_Repr
+
+type TVMModule = ForeignPtr TVMModule_Repr
+
+data TVMFunction_Repr
+
+instance Storable TVMFunction_Repr where
+  sizeOf _ = {# sizeof TVMFunctionHandle #}
+  alignment _ = {# alignof TVMFunctionHandle #}
+  peek = error "peek is undefined for TVMFunction_Repr"
+  poke = error "poke is undefined for TVMFunction_Repr"
 
 -- | Alias for void* used as Function handle
-type TVMFunction = Ptr ()
+type TVMFunctionHandle = Ptr TVMFunction_Repr
+
+type TVMFunction = ForeignPtr TVMFunction_Repr
+
 
 setTensor :: TVMTensor -> Ptr TVMValue -> Ptr TVMTypeCode -> IO ()
 setTensor ft pv pc = do
@@ -145,24 +163,29 @@ foreign import ccall unsafe "c_runtime_api.h TVMArrayFree"
 foreign import ccall unsafe "c_runtime_api.h &TVMArrayFree"
   tvmArrayFree_ :: FunPtr (TVMArrayHandle -> IO ())
 
-
 foreign import ccall unsafe "c_runtime_api.h TVMModLoadFromFile"
-  tvmModLoadFromFile :: CString -> CString -> Ptr TVMModule -> IO CInt
+  tvmModLoadFromFile :: CString -> CString -> Ptr TVMModuleHandle -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMModFree"
-  tvmModFree :: TVMModule -> IO CInt
+  tvmModFree :: TVMModuleHandle -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h &TVMModFree"
+  tvmModFree_ :: FunPtr (TVMModuleHandle -> IO ())
 
 foreign import ccall unsafe "c_runtime_api.h TVMModGetFunction"
-  tvmModGetFunction :: TVMModule -> CString -> CInt -> Ptr TVMFunction -> IO CInt
+  tvmModGetFunction :: TVMModuleHandle -> CString -> CInt -> Ptr TVMFunctionHandle -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMFuncFree"
-  tvmFuncFree :: TVMFunction -> IO CInt
+  tvmFuncFree :: TVMFunctionHandle -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h &TVMFuncFree"
+  tvmFuncFree_ :: FunPtr (TVMFunctionHandle -> IO ())
 
 foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
   tvmGetLastError :: IO CString
 
 foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
-  tvmFuncCall :: TVMFunction -> Ptr TVMValue -> Ptr TVMTypeCode -> CInt -> Ptr TVMValue -> Ptr TVMTypeCode -> IO CInt
+  tvmFuncCall :: TVMFunctionHandle -> Ptr TVMValue -> Ptr TVMTypeCode -> CInt -> Ptr TVMValue -> Ptr TVMTypeCode -> IO CInt
 
 foreign import ccall unsafe "c_runtime_api.h TVMArrayCopyFromTo"
   tvmArrayCopyFromTo :: TVMArrayHandle -> TVMArrayHandle -> TVMStreamHandle -> IO CInt
@@ -184,14 +207,15 @@ class TVMElemType e where
   -- | Make a parameter of type
   tvmTypeLanes :: Integer
 
-instance TVMElemType Int32 where tvmTypeCode = KDLInt; tvmTypeBits = 32; tvmTypeLanes = 1
+instance TVMElemType Int32  where tvmTypeCode = KDLInt; tvmTypeBits = 32; tvmTypeLanes = 1
 instance TVMElemType Word32 where tvmTypeCode = KDLUInt; tvmTypeBits = 32; tvmTypeLanes = 1
-instance TVMElemType Float where tvmTypeCode = KDLFloat; tvmTypeBits = 32; tvmTypeLanes = 1
-instance TVMElemType Int64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
+instance TVMElemType Float  where tvmTypeCode = KDLFloat; tvmTypeBits = 32; tvmTypeLanes = 1
+instance TVMElemType Int64  where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
 instance TVMElemType Word64 where tvmTypeCode = KDLUInt; tvmTypeBits = 64; tvmTypeLanes = 1
 instance TVMElemType Double where tvmTypeCode = KDLFloat; tvmTypeBits = 64; tvmTypeLanes = 1
 
--- | Data source. @d@ is type of data, @i@ is a type of index, @e@ is a type of element
+-- | Data bundle accepted by TVM model. @d@ is type of data, @i@ is a type of
+-- index, @e@ is the type of element
 class (TVMIndex i, TVMElemType e) => TVMData d i e | d -> i, d -> e where
   tvmIShape :: d -> [Integer]
   tvmIndex :: d -> i -> IO e
@@ -211,10 +235,10 @@ tvmIndex1 l i = pure $ l !! (fromInteger i)
 tvmPoke1 d ptr = pokeArray ptr d
 tvmPeek1 [x] ptr = peekArray (fromInteger x) ptr
 tvmPeek1 _ ptr = error "tvmPeek1 should be called with single-element shape"
-instance TVMData [Int32] Integer Int32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Int32] Integer Int32   where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
 instance TVMData [Word32] Integer Word32 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
-instance TVMData [Float] Integer Float where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
-instance TVMData [Int64] Integer Int64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Float] Integer Float   where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
+instance TVMData [Int64] Integer Int64   where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
 instance TVMData [Word64] Integer Word64 where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
 instance TVMData [Double] Integer Double where tvmIShape = tvmIShape1 ; tvmIndex = tvmIndex1; tvmPoke = tvmPoke1; tvmPeek = tvmPeek1
 
@@ -357,7 +381,20 @@ tensorCopy dst src = do
 getLastError :: IO String
 getLastError = peekCAString =<< tvmGetLastError
 
+-- | Load module named @modname@. Module will be freed when Haskell runtime
+-- decide so.
+loadModule :: FilePath -> IO TVMModule
+loadModule modname = do
+  alloca $ \pmod -> do
+  withCString modname $ \cmodname -> do
+  withCString "so" $ \so -> do
+    r <- tvmModLoadFromFile cmodname so pmod
+    case r of
+      0 -> peek pmod >>= newForeignPtr tvmModFree_
+      err -> throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> getLastError)
+
 -- | Load module from dynamic library @modname@ and process it with a callback @func@
+-- Module will be freed on return from @func@
 withModule :: FilePath -> (TVMModule -> IO b) -> IO b
 withModule modname func =
   alloca $ \pmod -> do
@@ -367,23 +404,36 @@ withModule modname func =
     case r of
       0 -> do
         m <- peek pmod
-        b <- func m
+        b <- func =<< (newForeignPtr_ m)
         tvmModFree m
         return b
       err -> do
-        str <- getLastError
-        throwIO (TVMModLoadFailed (fromInteger $ toInteger err) str)
+        throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> getLastError)
+
+-- | Load function named @funcname@ from module @mod@. Function will be
+-- freed when Haskell runtime decide so.
+loadFunction :: Text -> TVMModule -> IO TVMFunction
+loadFunction funcname mod = do
+  alloca $ \pfunc -> do
+  withCString (tunpack funcname) $ \cfuncname -> do
+  withForeignPtr mod $ \hmod -> do
+    r <- tvmModGetFunction hmod cfuncname 0 pfunc
+    case r of
+      0 -> peek pfunc >>= newForeignPtr tvmFuncFree_
+      err -> throwIO =<< (TVMFuncLoadFailed <$> pure (fromCInt err) <*> getLastError)
 
 -- | Load the function named @funcname@ from module @mod@, use it in callback @func@
+-- Function will be freed on return from @func@
 withFunction :: Text -> TVMModule -> (TVMFunction -> IO b) -> IO b
 withFunction funcname mod func =
   alloca $ \pfunc -> do
   withCString (tunpack funcname) $ \cfuncname -> do
-    r <- tvmModGetFunction mod cfuncname 0 pfunc
+  withForeignPtr mod $ \hmod -> do
+    r <- tvmModGetFunction hmod cfuncname 0 pfunc
     case r of
       0 -> do
         f <- peek pfunc
-        b <- func f
+        b <- func =<< (newForeignPtr_ f)
         tvmFuncFree f
         return b
       err -> do
@@ -403,11 +453,12 @@ callTensorFunction ret fun args =
   alloca $ \pvretcode -> do
   allocaArray nargs $ \pvargs -> do
   allocaArray nargs $ \pvargcodes -> do
+  withForeignPtr fun $ \hfun -> do
     forM_ ((args<>[ret])`zip`[0..nargs-1]) $ \(farg,off) -> do
       case off < length args of
         True -> setTensor farg (advancePtr pvargs off) (advancePtr pvargcodes off)
         False -> setTensor ret (advancePtr pvargs off) (advancePtr pvargcodes off)
-    r <- tvmFuncCall fun pvargs pvargcodes clen pvret pvretcode
+    r <- tvmFuncCall hfun pvargs pvargcodes clen pvret pvretcode
     case r of
       0 -> do
         return ()
