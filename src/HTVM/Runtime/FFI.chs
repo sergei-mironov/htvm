@@ -67,7 +67,7 @@ instance Storable TVMContext where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
--- | Representation of `DLTensor` structure which is the Tensor container
+-- | Representation of `DLTensor` C structure
 data TVMTensor_Repr
 
 instance Storable TVMTensor_Repr where
@@ -97,6 +97,7 @@ instance Storable TVMValue where
   peek = error "peek undefined"
   poke = error "poke undefined"
 
+-- | Representation of ModuleHandle
 data TVMModule_Repr
 
 instance Storable TVMModule_Repr where
@@ -108,8 +109,10 @@ instance Storable TVMModule_Repr where
 -- | Alias for void* used as Module handle
 type TVMModuleHandle = Ptr TVMModule_Repr
 
+-- | Foreign pointer to Module handle
 type TVMModule = ForeignPtr TVMModule_Repr
 
+-- | Representation of FunctionHandle
 data TVMFunction_Repr
 
 instance Storable TVMFunction_Repr where
@@ -121,6 +124,7 @@ instance Storable TVMFunction_Repr where
 -- | Alias for void* used as Function handle
 type TVMFunctionHandle = Ptr TVMFunction_Repr
 
+-- | Foreign pointer to function handle
 type TVMFunction = ForeignPtr TVMFunction_Repr
 
 

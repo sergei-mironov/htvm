@@ -5,7 +5,7 @@ description:
     EDSL for building models with TVM.
 
 homepage:            https://github.com/grwlf/htvm
-version:             0.1.0.0
+version:             0.1.1
 license:             GPL-3
 license-file:        LICENSE
 category:            Machine Learning
