@@ -50,6 +50,7 @@ library
     , HTVM.EDSL.Build
     , HTVM.EDSL
     , HTVM.Runtime.FFI
+    , HTVM.Runtime.TVMData
     , HTVM.Runtime
     , HTVM.Prelude
     , HTVM
