@@ -1,11 +1,11 @@
 name:                htvm
-synopsis:            TVM bindings.
+synopsis:            Bindings for TVM machine learning framework
 description:
-    This library provides interface to TVM Runtime, and experimental
-    EDSL for building models with TVM.
+    This library provides interface to TVM framework. Runtime FFI and
+    experimental EDSL for defining models are included.
 
 homepage:            https://github.com/grwlf/htvm
-version:             0.1.1
+version:             0.1.2
 license:             GPL-3
 license-file:        LICENSE
 category:            Machine Learning
@@ -14,6 +14,7 @@ maintainer:          grrwlf@gmail.com
 build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
+extra-source-files:  README.md
 
 library
   build-depends:
