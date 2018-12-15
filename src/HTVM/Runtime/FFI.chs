@@ -16,7 +16,7 @@ import Foreign (ForeignPtr, newForeignPtr, Ptr, Storable(..), alloca,
                 allocaArray, peek, plusPtr, poke, peekArray, pokeArray,
                 castPtr, advancePtr, malloc, mallocArray, FunPtr(..), free,
                 withForeignPtr, nullPtr, newForeignPtr_)
-import Foreign.C.Types (CInt, CLong)
+import Foreign.C.Types (CInt, CLong, CSize)
 import Foreign.C.String (CString, withCString, peekCAString)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -180,11 +180,26 @@ foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
 foreign import ccall unsafe "c_runtime_api.h TVMArrayCopyFromTo"
   tvmArrayCopyFromTo :: TVMArrayHandle -> TVMArrayHandle -> TVMStreamHandle -> IO CInt
 
+foreign import ccall unsafe "c_runtime_api.h TVMArrayCopyToBytes"
+  tvmArrayCopyToBytes :: TVMArrayHandle -> Ptr Word8 -> CSize -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMArrayCopyFromBytes"
+  tvmArrayCopyFromBytes :: TVMArrayHandle -> Ptr Word8 -> CSize -> IO CInt
+
+foreign import ccall unsafe "c_runtime_api.h TVMArrayDataSize"
+  tvmArrayDataSize :: TVMArrayHandle -> Ptr CSize -> IO CInt
+
+{- FIXME: check data size compatibility -}
 toCInt :: (Integral x) => x -> CInt
 toCInt = fromInteger . toInteger
 
+{- FIXME: check data size compatibility -}
 fromCInt :: (Integral x) => CInt -> x
 fromCInt = fromInteger . toInteger
+
+{- FIXME: check data size compatibility -}
+fromCSize :: (Integral x) => CSize -> x
+fromCSize = fromInteger . toInteger
 
 tensorDevice :: TVMTensor -> TVMDeviceType
 tensorDevice ft = unsafePerformIO $ do
@@ -209,11 +224,19 @@ tensorShape ft = unsafePerformIO $ do
     map toInteger <$> do
       peekArray (fromInteger $ tensorNDim ft) =<< {# get DLTensor->shape #} pt
 
--- | Access raw tensor data
-tensorData :: TVMTensor -> IO (Ptr ())
-tensorData p = withForeignPtr p {# get DLTensor->data #}
+-- | Access device-specific raw tensor data. In case of CPU Tensor this is a
+-- pointer to raw data array
+unsafeTensorData :: TVMTensor -> Ptr ()
+unsafeTensorData p = unsafePerformIO $ withForeignPtr p {# get DLTensor->data #}
 
--- | Copy data from Tensor to Tensor
+-- | Return number of bytes required to store tensor's data
+tensorSize :: TVMTensor -> CSize
+tensorSize p = unsafePerformIO $ do
+  alloca $ \psz -> do
+  withForeignPtr p $ \ht -> do
+    tvmArrayDataSize ht psz
+    peek psz
+
 tensorCopy :: TVMTensor -> TVMTensor -> IO ()
 tensorCopy dst src = do
   withForeignPtr dst $ \pdst -> do

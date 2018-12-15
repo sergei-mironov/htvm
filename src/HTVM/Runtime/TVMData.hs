@@ -131,13 +131,13 @@ newEmptyTensor shape dt did =
     pokeArray pshape (map (fromInteger . toInteger) shape)
     r <-
       tvmArrayAlloc
-         pshape
-         (fromInteger $ toInteger $ ndim)
-         (toCInt $ fromEnum $ tvmTypeCode @e)
-         (toCInt $ tvmTypeBits @e)
-         (toCInt $ tvmTypeLanes @e)
-         (toCInt $ fromEnum dt)
-         (toCInt $ did) pt
+        pshape
+        (fromInteger $ toInteger $ ndim)
+        (toCInt $ fromEnum $ tvmTypeCode @e)
+        (toCInt $ tvmTypeBits @e)
+        (toCInt $ tvmTypeLanes @e)
+        (toCInt $ fromEnum dt)
+        (toCInt $ did) pt
     case r of
       0 -> peek pt >>= newForeignPtr tvmArrayFree_
       e -> throwIO (TVMAllocFailed (fromCInt e))
@@ -151,33 +151,35 @@ newTensor :: forall d i e . (TVMData d i e)
 newTensor d dt did = do
   ft <- newEmptyTensor @e (map fromInteger $ tvmDataShape d) dt did
   withForeignPtr ft $ \pt -> do
-    pdata <- tensorData ft
-    tvmPoke d (castPtr pdata)
+    tvmPoke d (castPtr (unsafeTensorData ft))
   return ft
 
-{- FIXME: Use CopyFromBytes for non-CPU devices -}
-peekTensor :: forall d i e b . (TVMData d i e)
+-- | Transfer data from TVMTensor to TVMData instance
+peekTensor :: forall d i e . (TVMData d i e)
   => TVMTensor -> IO d
 peekTensor ft = do
-  withForeignPtr ft $ \pt -> do
-    case tensorDevice ft of
-      KDLCPU -> do
-        pdata <- tensorData ft
-        tvmPeek (tensorShape ft) (castPtr pdata)
-      x -> do
-        fail "Not implemented"
+  case tensorDevice ft of
+    KDLCPU -> do
+      tvmPeek (tensorShape ft) (castPtr (unsafeTensorData ft))
+    x -> do
+      allocaArray (fromCSize $ tensorSize ft) $ \parr -> do
+      withForeignPtr ft $ \pt -> do
+        _ <- tvmArrayCopyToBytes pt parr (tensorSize ft)
+        tvmPeek (tensorShape ft) (castPtr parr)
 
-{- FIXME: Use CopyFromBytes for non-CPU devices -}
-pokeTensor :: forall d i e b . (TVMData d i e)
+-- | Transfer data from TVMData instance to TVMTensor
+pokeTensor :: forall d i e . (TVMData d i e)
   => TVMTensor -> d -> IO ()
 pokeTensor ft d = do
   when (tensorShape ft /= tvmDataShape d) $
     throwIO (PokeShapeMismatch (tensorShape ft) (tvmDataShape d))
-  withForeignPtr ft $ \pt -> do
-    case tensorDevice ft of
-      KDLCPU -> do
-        pdata <- tensorData ft
-        tvmPoke d (castPtr pdata)
-      x -> do
-        fail "Not implemented"
+  case tensorDevice ft of
+    KDLCPU -> do
+      tvmPoke d (castPtr (unsafeTensorData ft))
+    x -> do
+      allocaArray (fromCSize $ tensorSize ft) $ \parr -> do
+      withForeignPtr ft $ \pt -> do
+        tvmPoke d (castPtr parr)
+        _ <- tvmArrayCopyFromBytes pt parr (tensorSize ft)
+        return ()
 

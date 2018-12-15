@@ -48,7 +48,7 @@ let
       export CWD=`(cd ../../..; pwd)`
 
       export TVM=$CWD/src/$USER/tvm
-      export BUILD=build-native
+      export BUILD=build-docker
       export PYTHONPATH="$CWD/src/$USER:$TVM/python:$TVM/topi/python:$TVM/nnvm/python:$PYTHONPATH"
       export LD_LIBRARY_PATH="$TVM/$BUILD:$LD_LIBRARY_PATH"
       export C_INCLUDE_PATH="$TVM/include:$TVM/3rdparty/dmlc-core/include:$TVM/3rdparty/HalideIR/src:$TVM/3rdparty/dlpack/include:$TVM/topi/include:$TVM/nnvm/include"
