@@ -1,6 +1,11 @@
 Log
 ===
 
+#### 16.12.2018
+ * Add ForeingPtr-based Module and function API
+ * Provide type and shape checks for tensor FFI
+ * Started to write demo, learn how to load MNIST
+
 #### 10.12.2018
  * Bind Differentiate primitive, test works
 

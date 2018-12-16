@@ -33,6 +33,7 @@ let
       haskdogs
       temporary
       directory
+      mnist-idx
     ];
 
     executableToolDepends = [ pkgs.clang_6 haskellPackages.c2hs ];

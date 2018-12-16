@@ -35,11 +35,11 @@ library
     , directory
     , temporary
   hs-source-dirs:
-      src
+    src
   default-language:
-      Haskell2010
+    Haskell2010
   build-tools:
-      c2hs
+    c2hs
   ghc-options:
     -fwarn-incomplete-patterns
   extra-libraries:
@@ -57,11 +57,14 @@ library
     , HTVM
 
 test-suite test
-  type: exitcode-stdio-1.0
-  main-is: Main.hs
+  type:
+    exitcode-stdio-1.0
+  main-is:
+    Main.hs
   hs-source-dirs:
     test
-  ghc-options: -Wall
+  ghc-options:
+    -Wall
   build-depends:
       base >=4.7 && < 5
     , bytestring
@@ -78,6 +81,28 @@ test-suite test
   default-language: Haskell2010
   extra-libraries:
     tvm_runtime dl pthread
+  ghc-options:
+    -Wall -Wno-unused-imports
+
+executable demo
+  hs-source-dirs:
+    app/demo
+  main-is:
+    Main.hs
+  default-language:
+    Haskell2010
+  build-depends:
+      base >=4.7 && <5
+    , htvm
+    , mnist-idx
+    , bytestring
+    , containers
+    , temporary
+    , text
+    , directory
+    , vector
+    , process
+    , filepath
   ghc-options:
     -Wall -Wno-unused-imports
 
