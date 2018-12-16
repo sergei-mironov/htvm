@@ -22,7 +22,6 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import HTVM.Prelude
 
-
 -- | Errors raised by various functions from this module
 data TVMError =
     TVMAllocFailed Int
@@ -33,6 +32,7 @@ data TVMError =
   | TVMFunCallBadType Int
   | TVMCopyFailed Int String
   | PokeShapeMismatch [Integer] [Integer]
+  | TypeMismatch TVMDataType TVMDataType
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -41,10 +41,10 @@ instance Exception TVMError
 #include <dlpack/dlpack.h>
 #include <tvm/runtime/c_runtime_api.h>
 
-{# enum DLDataTypeCode as TVMDataTypeCode {upcaseFirstLetter} deriving(Eq) #}
-{# enum DLDeviceType as TVMDeviceType {upcaseFirstLetter} deriving(Eq) #}
-{# enum TVMDeviceExtType {upcaseFirstLetter} deriving(Eq) #}
-{# enum TVMTypeCode {upcaseFirstLetter} deriving(Eq) #}
+{# enum DLDataTypeCode as TVMDataTypeCode {upcaseFirstLetter} deriving(Eq,Ord,Read,Show) #}
+{# enum DLDeviceType as TVMDeviceType {upcaseFirstLetter} deriving(Eq,Ord,Read,Show) #}
+{# enum TVMDeviceExtType {upcaseFirstLetter} deriving(Eq,Ord,Read,Show) #}
+{# enum TVMTypeCode {upcaseFirstLetter} deriving(Eq,Ord,Read,Show) #}
 
 instance Storable TVMTypeCode where
   sizeOf _ = {# sizeof TVMTypeCode #}
@@ -66,6 +66,10 @@ instance Storable TVMContext where
   alignment _ = {# alignof TVMContext #}
   peek = error "peek undefined"
   poke = error "poke undefined"
+
+-- | Representation of `DLDataType` C structure
+data TVMDataType = TVMDataType { tvmCode :: TVMDataTypeCode, tvmBits :: Integer, tvmLanes :: Integer }
+  deriving(Eq,Ord,Show,Read)
 
 -- | Representation of `DLTensor` C structure
 data TVMTensor_Repr
@@ -190,9 +194,6 @@ foreign import ccall unsafe "c_runtime_api.h TVMArrayCopyToBytes"
 foreign import ccall unsafe "c_runtime_api.h TVMArrayCopyFromBytes"
   tvmArrayCopyFromBytes :: TVMArrayHandle -> Ptr Word8 -> CSize -> IO CInt
 
-foreign import ccall unsafe "c_runtime_api.h TVMArrayDataSize"
-  tvmArrayDataSize :: TVMArrayHandle -> Ptr CSize -> IO CInt
-
 {- FIXME: check data size compatibility -}
 toCInt :: (Integral x) => x -> CInt
 toCInt = fromInteger . toInteger
@@ -200,6 +201,10 @@ toCInt = fromInteger . toInteger
 {- FIXME: check data size compatibility -}
 fromCInt :: (Integral x) => CInt -> x
 fromCInt = fromInteger . toInteger
+
+{- FIXME: check data size compatibility -}
+toCSize :: (Integral x) => x -> CSize
+toCSize = fromInteger . toInteger
 
 {- FIXME: check data size compatibility -}
 fromCSize :: (Integral x) => CSize -> x
@@ -214,6 +219,14 @@ tensorNDim :: TVMTensor -> Integer
 tensorNDim ft = unsafePerformIO $ do
   withForeignPtr ft $ \pt -> do
     toInteger <$> {# get DLTensor->ndim #} pt
+
+-- | Return a tuple, consisting of nbits, nlanes and a typecode
+tensorDataType :: TVMTensor -> TVMDataType
+tensorDataType ft = unsafePerformIO $ do
+  withForeignPtr ft $ \pt -> do
+    TVMDataType <$> ((toEnum . fromInteger . toInteger) <$> {# get DLTensor->dtype.code #} pt)
+                <*> (toInteger <$> {# get DLTensor->dtype.bits #} pt)
+                <*> (toInteger <$> {# get DLTensor->dtype.lanes #} pt)
 
 {-
 tensorNDimM :: TVMTensor -> IO Integer
@@ -234,12 +247,10 @@ unsafeTensorData :: TVMTensor -> Ptr ()
 unsafeTensorData p = unsafePerformIO $ withForeignPtr p {# get DLTensor->data #}
 
 -- | Return number of bytes required to store tensor's data
-tensorSize :: TVMTensor -> CSize
-tensorSize p = unsafePerformIO $ do
-  alloca $ \psz -> do
-  withForeignPtr p $ \ht -> do
-    tvmArrayDataSize ht psz
-    peek psz
+tensorSize :: TVMTensor -> Integer
+tensorSize ft =
+  let (TVMDataType _ bits lanes) = tensorDataType ft
+  in (foldr (*) 1 (tensorShape ft)) * ((bits*lanes + 7) `div` 8)
 
 tensorCopy :: TVMTensor -> TVMTensor -> IO ()
 tensorCopy dst src = do

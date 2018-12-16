@@ -48,6 +48,9 @@ class TVMElemType e where
   -- | Make a parameter of type
   tvmTypeLanes :: Integer
 
+tvmDataType :: forall e . (TVMElemType e) => TVMDataType
+tvmDataType = TVMDataType (tvmTypeCode @e) (tvmTypeBits @e) (tvmTypeLanes @e)
+
 instance TVMElemType Int32  where tvmTypeCode = KDLInt; tvmTypeBits = 32; tvmTypeLanes = 1
 instance TVMElemType Word32 where tvmTypeCode = KDLUInt; tvmTypeBits = 32; tvmTypeLanes = 1
 instance TVMElemType Float  where tvmTypeCode = KDLFloat; tvmTypeBits = 32; tvmTypeLanes = 1
@@ -158,13 +161,15 @@ newTensor d dt did = do
 peekTensor :: forall d i e . (TVMData d i e)
   => TVMTensor -> IO d
 peekTensor ft = do
+  when (tensorDataType ft /= tvmDataType @e) $
+    throwIO (TypeMismatch (tensorDataType ft) (tvmDataType @e))
   case tensorDevice ft of
     KDLCPU -> do
       tvmPeek (tensorShape ft) (castPtr (unsafeTensorData ft))
     x -> do
-      allocaArray (fromCSize $ tensorSize ft) $ \parr -> do
+      allocaArray (fromInteger $ tensorSize ft) $ \parr -> do
       withForeignPtr ft $ \pt -> do
-        _ <- tvmArrayCopyToBytes pt parr (tensorSize ft)
+        _ <- tvmArrayCopyToBytes pt parr (toCSize $ tensorSize ft)
         tvmPeek (tensorShape ft) (castPtr parr)
 
 -- | Transfer data from TVMData instance to TVMTensor
@@ -173,13 +178,15 @@ pokeTensor :: forall d i e . (TVMData d i e)
 pokeTensor ft d = do
   when (tensorShape ft /= tvmDataShape d) $
     throwIO (PokeShapeMismatch (tensorShape ft) (tvmDataShape d))
+  when (tensorDataType ft /= tvmDataType @e) $
+    throwIO (TypeMismatch (tensorDataType ft) (tvmDataType @e))
   case tensorDevice ft of
     KDLCPU -> do
       tvmPoke d (castPtr (unsafeTensorData ft))
     x -> do
-      allocaArray (fromCSize $ tensorSize ft) $ \parr -> do
+      allocaArray (fromInteger $ tensorSize ft) $ \parr -> do
       withForeignPtr ft $ \pt -> do
         tvmPoke d (castPtr parr)
-        _ <- tvmArrayCopyFromBytes pt parr (tensorSize ft)
+        _ <- tvmArrayCopyFromBytes pt parr (toCSize $ tensorSize ft)
         return ()
 
