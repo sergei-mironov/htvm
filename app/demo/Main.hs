@@ -1,8 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Control.Monad(when)
+import Control.Monad(join,when,liftM2)
+import Control.Monad.Except(throwError,ExceptT,runExceptT)
+import Control.Monad.Trans(liftIO)
 import Control.Concurrent(forkIO)
 import Data.Monoid((<>))
 import Data.IDX
@@ -13,6 +16,11 @@ import System.Process(waitForProcess,rawSystem,runInteractiveProcess,readProcess
 import System.Exit(ExitCode(..))
 import System.IO(stdin,stdout,stderr,hPutStrLn,hGetContents)
 
+data MNISTError =
+    DownloadError String
+  | UnpackError String
+  | DecodeError
+  deriving(Read,Show,Eq,Ord)
 
 data MNISTOptions = MNISTOptions {
     mnist_urls :: (String,String,String,String)
@@ -44,24 +52,25 @@ defaultMNISTOptions = MNISTOptions {
 
 type URL = String
 
-downloadFile :: URL -> FilePath -> IO ()
+downloadFile :: URL -> FilePath -> ExceptT MNISTError IO ()
 downloadFile url fp = do
-  hPutStrLn stderr $ "Downloading '" <> url <> "' to '" <> fp <> "'"
-  (pstdin,pstdout,pstderr,ph) <- runInteractiveProcess "curl" ["-o", fp, url] Nothing Nothing
-  forkIO $ hPutStrLn stdout =<< hGetContents pstdout
-  forkIO $ hPutStrLn stderr =<< hGetContents pstderr
-  ec <- waitForProcess ph
+  ec <- liftIO $ do
+    hPutStrLn stderr $ "Downloading '" <> url <> "' to '" <> fp <> "'"
+    (pstdin,pstdout,pstderr,ph) <- runInteractiveProcess "curl" ["-o", fp, url] Nothing Nothing
+    forkIO $ hPutStrLn stdout =<< hGetContents pstdout
+    forkIO $ hPutStrLn stderr =<< hGetContents pstderr
+    waitForProcess ph
   when (ec /= ExitSuccess) $ do
-    fail $ "Failed to download '" <> url <> "' to '" <> fp
+    throwError $ DownloadError $ "Failed to download '" <> url <> "' to '" <> fp
 
-gunzipFile :: FilePath -> IO ()
+gunzipFile :: FilePath -> ExceptT MNISTError IO ()
 gunzipFile fp = do
-  ec <- rawSystem "gunzip" ["-f",fp]
+  ec <- liftIO $ rawSystem "gunzip" ["-f",fp]
   when (ec /= ExitSuccess) $ do
-    fail $ "Failed to unzip '" <> fp
+    throwError $ UnpackError $ "Failed to unzip '" <> fp
 
-ensureMNISTFolder :: MNISTOptions -> IO FilePath
-ensureMNISTFolder MNISTOptions{..} = do
+ensureMNISTFolder :: MNISTOptions -> ExceptT MNISTError IO FilePath
+ensureMNISTFolder MNISTOptions{..} = liftIO $ do
   d <- do
     case mnist_folder of
       Just f -> pure f
@@ -71,16 +80,16 @@ ensureMNISTFolder MNISTOptions{..} = do
   createDirectoryIfMissing False d
   return d
 
-ensureFile :: URL -> FilePath -> IO ()
+ensureFile :: URL -> FilePath -> ExceptT MNISTError IO ()
 ensureFile url fp = do
-  -- doesFileExist fp >>= \case
-  --   True -> return ()
-  --   False -> do
+  liftIO (doesFileExist fp) >>= \case
+    True -> return ()
+    False -> do
       downloadFile url (fp<>".gz")
       gunzipFile (fp<>".gz")
 
-mnistLoad :: MNISTOptions -> IO [(Int, Vector Double)]
-mnistLoad o@MNISTOptions{..} = do
+mnistLoadTrainTest :: MNISTOptions -> IO (Either MNISTError ([(Int, Vector Double)],[(Int, Vector Double)]))
+mnistLoadTrainTest o@MNISTOptions{..} = runExceptT $ do
   f <- ensureMNISTFolder o
   let (uti,utl,uvi,uvl) = mnist_urls
   let (fti,ftl,fvi,fvl) = mnistFiles
@@ -90,10 +99,11 @@ mnistLoad o@MNISTOptions{..} = do
   ensureFile uvi (f</>fvi)
   ensureFile uvl (f</>fvl)
 
-  Just d <- decodeIDXFile (f</>fti)
-  Just l <- decodeIDXLabelsFile (f</>ftl)
-  Just v <- pure $ labeledDoubleData l d
-  return v
+  let decode l i = liftIO $ pure . join =<< liftM2 labeledDoubleData <$> decodeIDXLabelsFile l <*> decodeIDXFile i
+  liftM2 (,) <$> decode (f</>ftl) (f</>fti) <*> decode (f</>fvl) (f</>fvi)
+  >>= \case
+    Just x -> return x
+    Nothing -> throwError $ DecodeError
 
 
 mnistTestLoad :: IO [(Int, Vector Double)]

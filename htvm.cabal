@@ -103,6 +103,7 @@ executable demo
     , vector
     , process
     , filepath
+    , mtl
   ghc-options:
     -Wall -Wno-unused-imports
 
