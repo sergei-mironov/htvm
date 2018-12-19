@@ -43,16 +43,6 @@ genShape = do
   ndim <- choose (0,4)
   vectorOf ndim (choose (0,5))
 
-withTestModule :: Stmt Function -> (ModuleLib -> IO b) -> IO b
-withTestModule mf act =
-  withTmpf "htvm-test-module" $ \fp -> do
-    {- traceM $ "file: " <> fp -}
-    act =<< do
-      buildModule defaultConfig fp $
-        stageModule $ do
-          f <- mf
-          modul [f]
-
 
 class EpsilonEqual a where
   epsilonEqual :: Rational -> a -> a -> Bool
@@ -66,6 +56,30 @@ instance EpsilonEqual a => EpsilonEqual [a] where
 assertEpsilonEqual :: (EpsilonEqual a, HasCallStack) => String -> Rational -> a -> a -> Assertion
 assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 
+withTestModule :: Stmt Function -> (ModuleLib -> IO b) -> IO b
+withTestModule mf act =
+  withTmpf "htvm-test-module" $ \fp -> do
+    {- traceM $ "file: " <> fp -}
+    act =<< do
+      buildModule defaultConfig fp $
+        stageModule $ do
+          f <- mf
+          modul [f]
+
+withSingleFuncModule :: ModuleLib -> (TVMFunction -> IO b) -> IO b
+withSingleFuncModule modlib handler =
+  case modlib of
+    (ModuleLib modpath (Module [Function nm _] _)) ->
+      withModule modpath $ \hmod ->
+      withFunction nm hmod $ \hfun ->
+        handler hfun
+    _ -> fail "withSingleFuncModule expects module with single function"
+
+withTestFunction :: Stmt Function -> (TVMFunction -> IO b) -> IO b
+withTestFunction mf handler = withTestModule mf $ flip withSingleFuncModule handler
+
+shouldCompile :: Stmt Function -> IO ()
+shouldCompile = flip withTestFunction (const $ return ())
 
 {-
 testFunction :: forall d1 i1 e1 d2 i2 e2 . (TVMData d1 i1 e1, TVMData d2 i2 e2) =>
@@ -238,33 +252,30 @@ main = defaultMain $
 
     , testCase "Reduce axis operation should compile" $
 
-        withTestModule (do
+        shouldCompile $ do
           s <- shapevar [4]
           function "reduce" [("A",float32,s)] $ \[a] -> do
             IterVar r <- reduce_axis (0,3)
             compute ShapeScalar $ \(_::Expr) -> esum (a![r], [r])
-          ) $ \_ -> return ()
 
     , testCase "Conv2d operation should compile" $
 
-        withTestModule (do
+        shouldCompile $ do
           sa <- shapevar [1,1,10,10]
           sk <- shapevar [1,1,3,3]
           function "reduce" [("A",float32,sa), ("k",float32,sk)] $ \[a,k] -> do
             return $ conv2d_nchw a k def
-          ) $ \_ -> return ()
 
     , testCase "Pad operation should compile" $
 
-        withTestModule (do
+        shouldCompile $ do
           sa <- shapevar [1,1,10,10]
           function "reduce" [("A",float32,sa) ] $ \[a] -> do
             return $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
-          ) $ \_ -> return ()
 
     , testCase "Parallel schedule should compile" $
 
-        withTestModule (do
+        shouldCompile $ do
           sa <- shapevar [1,1,10,10]
           function "reduce" [("A",float32,sa) ] $ \[a] -> do
             c <- assign $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
@@ -272,54 +283,48 @@ main = defaultMain $
             s <- schedule [c]
             parallel s c r
             return c
-          ) $ \_ -> return ()
 
     , testCase "Sigmoid primitive should work" $
 
-        withTestModule (do
+        withTestFunction (do
           s <- shapevar [4]
           function "sigmoid" [("A",float32,s)] $ \[a] -> do
             c <- assign $ sigmoid a
             return c
           ) $
-          \(ModuleLib p _) -> do
-            withModule p $ \hmod -> do
-            withFunction "sigmoid" hmod $ \fmod ->
-              let
-                inp = [1,2,3,4] :: [Float]
-                out = map (\x -> 1.0 / (1.0 + exp (- x))) inp
-              in do
-              a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-              c <- newEmptyTensor @Float [4] KDLCPU 0
-              callTensorFunction c fmod [a]
-              c_ <- peekTensor c
-              assertEpsilonEqual "Simple model result" epsilon out c_
+          \fmod ->
+            let
+              inp = [1,2,3,4] :: [Float]
+              out = map (\x -> 1.0 / (1.0 + exp (- x))) inp
+            in do
+            a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
+            c <- newEmptyTensor @Float [4] KDLCPU 0
+            callTensorFunction c fmod [a]
+            c_ <- peekTensor c
+            assertEpsilonEqual "Simple model result" epsilon out c_
 
     , testCase "Split primitive should compile" $
 
-        withTestModule (do
+        shouldCompile $ do
           sa <- shapevar [2,4]
           function "reduce" [("A",float32,sa) ] $ \[a] -> do
             c <- assign $ split a [1] 0
             return (c!0)
-          ) $ \_ -> return ()
 
     , testCase "Differentiate should work" $
 
-        withTestModule (do
+        withTestFunction (do
           sa <- shapevar [1]
           function "difftest" [("A",float32,sa) ] $ \[a] -> do
             c <- compute sa $ \i -> (a![i])*(a![i])
             dc <- assign $ differentiate c [a]
             return (dc!0)
           ) $
-          \(ModuleLib p _) -> do
-            withModule p $ \hmod -> do
-            withFunction "difftest" hmod $ \fmod -> do
-              a <- newTensor @[Float] [3.0] KDLCPU 0
-              c <- newEmptyTensor @Float [1,1] KDLCPU 0
-              callTensorFunction c fmod [a]
-              c_ <- peekTensor c
-              assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
+          \func -> do
+            a <- newTensor @[Float] [3.0] KDLCPU 0
+            c <- newEmptyTensor @Float [1,1] KDLCPU 0
+            callTensorFunction c func [a]
+            c_ <- peekTensor c
+            assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
     ]
 
