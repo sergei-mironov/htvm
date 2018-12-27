@@ -20,6 +20,7 @@ import Data.Functor.Foldable (Fix(..), Recursive(..), Corecursive(..))
 import Data.Maybe (fromMaybe)
 import Data.Text (isInfixOf)
 import Data.Monoid ((<>))
+import Foreign (Storable(..))
 import System.Directory (getTemporaryDirectory)
 import System.IO.Temp (withTempFile)
 import Prelude
@@ -53,6 +54,9 @@ instance EpsilonEqual a => EpsilonEqual [a] where
   epsilonEqual eps a b =
     length a == length b && (all (uncurry (epsilonEqual eps)) (a`zip`b))
 
+instance EpsilonEqual e => EpsilonEqual (FlatternTensor e) where
+  epsilonEqual eps a b = epsilonEqual eps (ft_data a) (ft_data b)
+
 assertEpsilonEqual :: (EpsilonEqual a, HasCallStack) => String -> Rational -> a -> a -> Assertion
 assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 
@@ -75,11 +79,36 @@ withSingleFuncModule modlib handler =
         handler hfun
     _ -> fail "withSingleFuncModule expects module with single function"
 
+singleFuncModule :: ModuleLib -> IO TVMFunction
+singleFuncModule modlib =
+  case modlib of
+    (ModuleLib modpath (Module [Function nm _] _)) -> do
+      m <- loadModule modpath
+      f <- loadFunction nm m
+      return f
+    _ -> fail "withSingleFuncModule expects module with single function"
+
 withTestFunction :: Stmt Function -> (TVMFunction -> IO b) -> IO b
 withTestFunction mf handler = withTestModule mf $ flip withSingleFuncModule handler
 
 shouldCompile :: Stmt Function -> IO ()
 shouldCompile = flip withTestFunction (const $ return ())
+
+modelProperty :: ModuleLib -> Gen ([TVMTensor],TVMTensor) -> Property
+modelProperty modlib gen =
+  monadicIO $ do
+    func <- run $ singleFuncModule modlib
+    forAllM gen $ \(args,expected) -> do
+      actual <- run $ newEmptyTensor @Float (tensorShape expected) KDLCPU 0
+      run $ callTensorFunction actual func args
+      case tensorElemType actual of
+        KDLInt -> error "TODO: modelProperty is not implemented for non-floats"
+        KDLUInt -> error "TODO: modelProperty is not implemented for non-floats"
+        KDLFloat -> do
+          (a :: FlatternTensor Float) <- run $ peekTensor actual
+          (e :: FlatternTensor Float) <- run $ peekTensor expected
+          assert $ (epsilonEqual epsilon a e)
+
 
 {-
 testFunction :: forall d1 i1 e1 d2 i2 e2 . (TVMData d1 i1 e1, TVMData d2 i2 e2) =>
@@ -99,6 +128,10 @@ testFunction ishape func_ut func_checker =
 
 epsilon :: Rational
 epsilon = 1e-5
+
+flatzero2 :: [[e]] -> [[e]]
+flatzero2 x | length (concat x) == 0 = []
+            | otherwise = x
 
 main :: IO ()
 main = defaultMain $
@@ -134,15 +167,11 @@ main = defaultMain $
             assertEqual "poke-peek-3" l l2
             return ()
 
-          flatzero :: [[e]] -> [[e]]
-          flatzero x | length (concat x) == 0 = []
-                     | otherwise = x
-
           gen1 :: forall e i . (Eq e, Show e, TVMData [e] i e, Arbitrary e) => Property
           gen1 = forAll (genTensorList1 @e) $ monadicIO . run . go
 
           gen2 :: forall e i . (Eq e, Show e, TVMData [[e]] i e, Arbitrary e) => Property
-          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero
+          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
         in [
           testProperty "[Int32]"      $ (gen1 @Int32)
         , testProperty "[Word32]"     $ (gen1 @Word32)
@@ -158,6 +187,23 @@ main = defaultMain $
         , testProperty "[[Double]]"   $ (gen2 @Double)
         ]
 
+    , testGroup "Flattern representation should be correct" $
+        let
+          go :: forall d i e . (TVMData d i e, Eq e, Show e, Eq d, Show d, Storable e) => d -> IO ()
+          go l = do
+            a <- newTensor l KDLCPU 0
+            f <- peekTensor @(FlatternTensor e) a
+            assertEqual "Failed!" f (flatternTensor l)
+            return ()
+
+          gen2 :: forall e i . (Eq e, Show e, TVMData [[e]] i e, Arbitrary e, Storable e) => Property
+          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
+        in [
+          testProperty "[[Float]]"  $ (gen2 @Float)
+        , testProperty "[[Double]]" $ (gen2 @Double)
+        ]
+        ??? Works ???
+
     , testGroup "Copy FFI should work for tensors" $
         let
           go :: forall d i e . (TVMData d i e, Eq e, Eq d, Show d) => d -> IO ()
@@ -169,15 +215,11 @@ main = defaultMain $
             assertEqual "copy-peek-1" l l2
             return ()
 
-          flatzero :: [[e]] -> [[e]]
-          flatzero x | length (concat x) == 0 = []
-                     | otherwise = x
-
           gen1 :: forall e i . (Eq e, Show e, TVMData [e] i e, Arbitrary e) => Property
           gen1 = forAll (genTensorList1 @e) $ monadicIO . run . go
 
           gen2 :: forall e i . (Eq e, Show e, TVMData [[e]] i e, Arbitrary e) => Property
-          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero
+          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
         in [
           testProperty "[Int32]"      $ (gen1 @Int32)
         , testProperty "[Word32]"     $ (gen1 @Word32)

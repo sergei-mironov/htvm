@@ -228,6 +228,9 @@ tensorDataType ft = unsafePerformIO $ do
                 <*> (toInteger <$> {# get DLTensor->dtype.bits #} pt)
                 <*> (toInteger <$> {# get DLTensor->dtype.lanes #} pt)
 
+tensorElemType :: TVMTensor -> TVMDataTypeCode
+tensorElemType = tvmCode . tensorDataType
+
 {-
 tensorNDimM :: TVMTensor -> IO Integer
 tensorNDimM ft = do
