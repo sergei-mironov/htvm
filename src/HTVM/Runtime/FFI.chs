@@ -245,9 +245,9 @@ tensorShape ft = unsafePerformIO $ do
       peekArray (fromInteger $ tensorNDim ft) =<< {# get DLTensor->shape #} pt
 
 -- | Access device-specific raw tensor data. In case of CPU Tensor this is a
--- pointer to raw data array
-unsafeTensorData :: TVMTensor -> Ptr ()
-unsafeTensorData p = unsafePerformIO $ withForeignPtr p {# get DLTensor->data #}
+-- pointer to raw data array. For GPUs and other devices contents is undefined.
+unsafeTensorData :: TVMTensor -> Ptr Word8
+unsafeTensorData p = castPtr $ unsafePerformIO $ withForeignPtr p {# get DLTensor->data #}
 
 -- | Return number of bytes required to store tensor's data
 tensorSize :: TVMTensor -> Integer
