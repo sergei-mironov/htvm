@@ -31,7 +31,8 @@ data TVMError =
   | TVMFunCallFailed Int String
   | TVMFunCallBadType Int
   | TVMCopyFailed Int String
-  | PokeShapeMismatch [Integer] [Integer]
+  | DimMismatch Integer Integer
+  | ShapeMismatch [Integer] [Integer]
   | TypeMismatch TVMDataType TVMDataType
   deriving(Show,Read,Ord,Eq)
 
