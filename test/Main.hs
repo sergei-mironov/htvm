@@ -59,7 +59,7 @@ instance EpsilonEqual TensorData where
     case td_type a == td_type b of
       False -> False
       True ->
-        case tvmCode (td_type a) of
+        case tvmCode $ toTvmDataType $ td_type a of
           KDLInt -> td_data a == td_data b
           KDLUInt -> td_data a == td_data b
           KDLFloat ->
@@ -107,15 +107,11 @@ modelProperty modlib gen =
   monadicIO $ do
     func <- run $ singleFuncModule modlib
     forAllM gen $ \(args,expected) -> do
-      actual <- run $ newEmptyTensor (tvmType @Float) (tensorShape expected) KDLCPU 0
+      actual <- run $ newEmptyTensor (toTvmDataType $ tensorDataType @Float) (tvmTensorShape expected) KDLCPU 0
       run $ callTensorFunction actual func args
-      case tensorElemType actual of
-        KDLInt -> error "TODO: modelProperty is not implemented for non-floats"
-        KDLUInt -> error "TODO: modelProperty is not implemented for non-floats"
-        KDLFloat -> do
-          (a :: TensorData) <- run $ peekTensor actual
-          (e :: TensorData) <- run $ peekTensor expected
-          assert $ (epsilonEqual epsilon a e)
+      (a :: TensorData) <- run $ peekTensor actual
+      (e :: TensorData) <- run $ peekTensor expected
+      assert $ (epsilonEqual epsilon a e)
 
 
 {-
@@ -147,13 +143,13 @@ main = defaultMain $
 
       testGroup "Uninitialized Tensor FFI should work" $
         let
-          go :: forall e . TVMElemType e => [Integer] -> IO ()
+          go :: forall e . TensorDataTypeRepr e => [Integer] -> IO ()
           go sh = do
-            a <- newEmptyTensor (tvmType @e) sh KDLCPU 0
-            assertEqual "poke-peek-2" (tensorNDim a) (ilength sh)
-            assertEqual "poke-peek-1" (tensorShape a) sh
+            a <- newEmptyTensor (toTvmDataType $ tensorDataType @e) sh KDLCPU 0
+            assertEqual "poke-peek-2" (tvmTensorNDim a) (ilength sh)
+            assertEqual "poke-peek-1" (tvmTensorShape a) sh
 
-          gen :: forall e . TVMElemType e => Property
+          gen :: forall e . TensorDataTypeRepr e => Property
           gen = forAll genShape $ monadicIO . run . go @e
         in [
           testProperty "Int32"  $ (gen @Int32)
@@ -169,8 +165,8 @@ main = defaultMain $
           go :: forall d . (TVMData d, Eq d, Show d) => d -> IO ()
           go l = do
             a <- newTensor l KDLCPU 0
-            assertEqual "poke-peek-1" (tensorNDim a) (tvmDataNDim l)
-            assertEqual "poke-peek-2" (tensorShape a) (tvmDataShape l)
+            assertEqual "poke-peek-1" (tvmTensorNDim a) (tvmDataNDim l)
+            assertEqual "poke-peek-2" (tvmTensorShape a) (tvmDataShape l)
             l2 <- peekTensor a
             assertEqual "poke-peek-3" l l2
             return ()
@@ -178,7 +174,7 @@ main = defaultMain $
           gen1 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TVMData [e]) => Property
           gen1 = forAll (genTensorList1 @e) $ monadicIO . run . go
 
-          gen2 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TVMElemType e) => Property
+          gen2 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e) => Property
           gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
         in [
           testProperty "[Int32]"      $ (gen1 @Int32)
@@ -219,8 +215,8 @@ main = defaultMain $
           go :: forall d . (TVMData d, Eq d, Show d) => d -> IO ()
           go l = do
             src <- newTensor l KDLCPU 0
-            dst <- newEmptyTensor (tensorDataType src) (tensorShape src) KDLCPU 0
-            tensorCopy dst src
+            dst <- newEmptyTensor (tvmTensorTvmDataType src) (tvmTensorShape src) KDLCPU 0
+            tvmTensorCopy dst src
             l2 <- peekTensor dst
             assertEqual "copy-peek-1" l l2
             return ()
@@ -228,7 +224,7 @@ main = defaultMain $
           gen1 :: forall e . (Eq e, Show e, TVMData [e], Arbitrary e) => Property
           gen1 = forAll (genTensorList1 @e) $ monadicIO . run . go
 
-          gen2 :: forall e . (Eq e, Show e, TVMElemType e, Storable e, Arbitrary e) => Property
+          gen2 :: forall e . (Eq e, Show e, TensorDataTypeRepr e, Storable e, Arbitrary e) => Property
           gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
         in [
           testProperty "[Int32]"      $ (gen1 @Int32)
@@ -279,7 +275,7 @@ main = defaultMain $
             withFunction fname hmod $ \fmod -> do
               a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
               b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
-              c <- newEmptyTensor (tvmType @Float) [dim0] KDLCPU 0
+              c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
               callTensorFunction c fmod [a,b]
               assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
@@ -298,7 +294,7 @@ main = defaultMain $
             f <- loadFunction "vecadd" m
             a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
             b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
-            c <- newEmptyTensor (tvmType @Float) [dim0] KDLCPU 0
+            c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
             callTensorFunction c f [a,b]
             assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
@@ -350,7 +346,7 @@ main = defaultMain $
               out = map (\x -> 1.0 / (1.0 + exp (- x))) inp
             in do
             a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-            c <- newEmptyTensor (tvmType @Float) [4] KDLCPU 0
+            c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [4] KDLCPU 0
             callTensorFunction c fmod [a]
             c_ <- peekTensor c
             assertEpsilonEqual "Simple model result" epsilon out c_
@@ -374,7 +370,7 @@ main = defaultMain $
           ) $
           \func -> do
             a <- newTensor @[Float] [3.0] KDLCPU 0
-            c <- newEmptyTensor (tvmType @Float) [1,1] KDLCPU 0
+            c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [1,1] KDLCPU 0
             callTensorFunction c func [a]
             c_ <- peekTensor c
             assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_

@@ -1,6 +1,9 @@
 -- | DLPack message wrappers to pass data to/from TVM models
 
 {-# LANGUAGE NondecreasingIndentation #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 module HTVM.Runtime.FFI where
 
@@ -31,9 +34,10 @@ data TVMError =
   | TVMFunCallFailed Int String
   | TVMFunCallBadType Int
   | TVMCopyFailed Int String
+  | UnsupportedTVMDataType TVMDataType
   | DimMismatch Integer Integer
   | ShapeMismatch [Integer] [Integer]
-  | TypeMismatch TVMDataType TVMDataType
+  | TypeMismatch TensorDataType TensorDataType
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -71,6 +75,62 @@ instance Storable TVMContext where
 -- | Representation of `DLDataType` C structure
 data TVMDataType = TVMDataType { tvmCode :: TVMDataTypeCode, tvmBits :: Integer, tvmLanes :: Integer }
   deriving(Eq,Ord,Show,Read)
+
+-- | Data types which are supported by this Runtime
+data TensorDataType =
+    TD_UInt8L1
+  | TD_SInt32L1
+  | TD_UInt32L1
+  | TD_SInt64L1
+  | TD_UInt64L1
+  | TD_Float32L1
+  | TD_Float64L1
+  deriving(Read,Show,Eq,Ord)
+
+-- | Convertions from TVM type to HTVM type
+fromTvmDataType :: TVMDataType -> Maybe TensorDataType
+fromTvmDataType = \case
+  (TVMDataType KDLUInt   8 1) -> Just TD_UInt8L1
+  (TVMDataType KDLInt   32 1) -> Just TD_SInt32L1
+  (TVMDataType KDLUInt  32 1) -> Just TD_UInt32L1
+  (TVMDataType KDLFloat 32 1) -> Just TD_Float32L1
+  (TVMDataType KDLInt   64 1) -> Just TD_SInt64L1
+  (TVMDataType KDLUInt  64 1) -> Just TD_UInt64L1
+  (TVMDataType KDLFloat 64 1) -> Just TD_Float64L1
+  _ -> Nothing
+
+-- | Convertions from HTVM type to TVM type
+toTvmDataType :: TensorDataType -> TVMDataType
+toTvmDataType = \case
+  TD_UInt8L1   -> (TVMDataType KDLUInt   8 1)
+  TD_SInt32L1  -> (TVMDataType KDLInt   32 1)
+  TD_UInt32L1  -> (TVMDataType KDLUInt  32 1)
+  TD_Float32L1 -> (TVMDataType KDLFloat 32 1)
+  TD_SInt64L1  -> (TVMDataType KDLInt   64 1)
+  TD_UInt64L1  -> (TVMDataType KDLUInt  64 1)
+  TD_Float64L1  -> (TVMDataType KDLFloat 64 1)
+
+
+-- | Provide TVM type information for well-known Haskell types
+class TensorDataTypeRepr e where
+  tensorDataType :: TensorDataType
+
+instance TensorDataTypeRepr Word8  where tensorDataType = TD_UInt8L1
+instance TensorDataTypeRepr Int32  where tensorDataType = TD_SInt32L1
+instance TensorDataTypeRepr Word32 where tensorDataType = TD_UInt32L1
+instance TensorDataTypeRepr Float  where tensorDataType = TD_Float32L1
+instance TensorDataTypeRepr Int64  where tensorDataType = TD_SInt64L1
+instance TensorDataTypeRepr Word64 where tensorDataType = TD_UInt64L1
+instance TensorDataTypeRepr Double where tensorDataType = TD_Float64L1
+
+
+-- | Flattern Tensor is a container which stores its elements in 1D-array
+data TensorData = TensorData {
+    td_shape :: [Integer]
+  , td_type :: TensorDataType
+  , td_data :: [Word8]
+  -- ^ FIXME: Replace with Array or ByteString
+  } deriving(Read,Show,Ord,Eq)
 
 -- | Representation of `DLTensor` C structure
 data TVMTensor_Repr
@@ -181,7 +241,7 @@ foreign import ccall unsafe "c_runtime_api.h &TVMFuncFree"
   tvmFuncFree_ :: FunPtr (TVMFunctionHandle -> IO ())
 
 foreign import ccall unsafe "c_runtime_api.h TVMGetLastError"
-  tvmGetLastError :: IO CString
+  tvmGetLastError_FFI :: IO CString
 
 foreign import ccall unsafe "c_runtime_api.h TVMFuncCall"
   tvmFuncCall :: TVMFunctionHandle -> Ptr TVMValue -> Ptr TVMTypeCode -> CInt -> Ptr TVMValue -> Ptr TVMTypeCode -> IO CInt
@@ -211,26 +271,33 @@ toCSize = fromInteger . toInteger
 fromCSize :: (Integral x) => CSize -> x
 fromCSize = fromInteger . toInteger
 
-tensorDevice :: TVMTensor -> TVMDeviceType
-tensorDevice ft = unsafePerformIO $ do
+tvmTensorDevice :: TVMTensor -> TVMDeviceType
+tvmTensorDevice ft = unsafePerformIO $ do
   withForeignPtr ft $ \pt -> do
     (toEnum . fromCInt) <$> {# get DLTensor->ctx.device_type #} pt
 
-tensorNDim :: TVMTensor -> Integer
-tensorNDim ft = unsafePerformIO $ do
+tvmTensorNDim :: TVMTensor -> Integer
+tvmTensorNDim ft = unsafePerformIO $ do
   withForeignPtr ft $ \pt -> do
     toInteger <$> {# get DLTensor->ndim #} pt
 
 -- | Return a tuple, consisting of nbits, nlanes and a typecode
-tensorDataType :: TVMTensor -> TVMDataType
-tensorDataType ft = unsafePerformIO $ do
+tvmTensorTvmDataType :: TVMTensor -> TVMDataType
+tvmTensorTvmDataType ft = unsafePerformIO $ do
   withForeignPtr ft $ \pt -> do
     TVMDataType <$> ((toEnum . fromInteger . toInteger) <$> {# get DLTensor->dtype.code #} pt)
                 <*> (toInteger <$> {# get DLTensor->dtype.bits #} pt)
                 <*> (toInteger <$> {# get DLTensor->dtype.lanes #} pt)
 
-tensorElemType :: TVMTensor -> TVMDataTypeCode
-tensorElemType = tvmCode . tensorDataType
+tvmDataTypeCode :: TVMTensor -> TVMDataTypeCode
+tvmDataTypeCode = tvmCode . tvmTensorTvmDataType
+
+tvmTensorDataType :: TVMTensor -> IO TensorDataType
+tvmTensorDataType ft = do
+  dt <- pure $ tvmTensorTvmDataType ft
+  case fromTvmDataType dt of
+    Nothing -> throwIO $ UnsupportedTVMDataType dt
+    Just tdt -> return tdt
 
 {-
 tensorNDimM :: TVMTensor -> IO Integer
@@ -239,37 +306,41 @@ tensorNDimM ft = do
     toInteger <$> {# get DLTensor->ndim #} pt
 -}
 
-tensorShape :: TVMTensor -> [Integer]
-tensorShape ft = unsafePerformIO $ do
+tvmTensorShape :: TVMTensor -> [Integer]
+tvmTensorShape ft = unsafePerformIO $ do
   withForeignPtr ft $ \pt -> do
     map toInteger <$> do
-      peekArray (fromInteger $ tensorNDim ft) =<< {# get DLTensor->shape #} pt
+      peekArray (fromInteger $ tvmTensorNDim ft) =<< {# get DLTensor->shape #} pt
 
 -- | Access device-specific raw tensor data. In case of CPU Tensor this is a
 -- pointer to raw data array. For GPUs and other devices contents is undefined.
-unsafeTensorData :: TVMTensor -> Ptr Word8
-unsafeTensorData p = castPtr $ unsafePerformIO $ withForeignPtr p {# get DLTensor->data #}
+unsafeTvmTensorData :: TVMTensor -> Ptr Word8
+unsafeTvmTensorData p = castPtr $ unsafePerformIO $ withForeignPtr p {# get DLTensor->data #}
 
 -- | Return number of bytes required to store tensor's data
-tensorSize :: TVMTensor -> Integer
-tensorSize ft =
-  let (TVMDataType _ bits lanes) = tensorDataType ft
-  in (foldr (*) 1 (tensorShape ft)) * ((bits*lanes + 7) `div` 8)
+tvmTensorSize :: TVMTensor -> Integer
+tvmTensorSize ft = tvmDataTypeSize (tvmTensorShape ft) (tvmTensorTvmDataType ft)
 
-tensorCopy :: TVMTensor -> TVMTensor -> IO ()
-tensorCopy dst src = do
+tvmDataTypeSize :: [Integer] -> TVMDataType -> Integer
+tvmDataTypeSize shape (TVMDataType _ bits lanes) = (foldr (*) 1 shape) * ((bits*lanes + 7) `div` 8)
+
+tensorDataTypeSize :: [Integer] -> TensorDataType -> Integer
+tensorDataTypeSize shape = tvmDataTypeSize shape . toTvmDataType
+
+tvmTensorCopy :: TVMTensor -> TVMTensor -> IO ()
+tvmTensorCopy dst src = do
   withForeignPtr dst $ \pdst -> do
   withForeignPtr src $ \psrc -> do
   ret <- tvmArrayCopyFromTo psrc pdst nullPtr
   case ret of
     0 -> return ()
     e -> do
-      str <- getLastError
+      str <- tvmGetLastError
       throwIO (TVMCopyFailed (fromCInt e) str)
 
 -- | Return a string describing the last error issued by TVM runtime
-getLastError :: IO String
-getLastError = peekCAString =<< tvmGetLastError
+tvmGetLastError :: IO String
+tvmGetLastError = peekCAString =<< tvmGetLastError_FFI
 
 -- | Load module named @modname@. Module will be freed when Haskell runtime
 -- decide so.
@@ -281,7 +352,7 @@ loadModule modname = do
     r <- tvmModLoadFromFile cmodname so pmod
     case r of
       0 -> peek pmod >>= newForeignPtr tvmModFree_
-      err -> throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> getLastError)
+      err -> throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
 
 -- | Load module from dynamic library @modname@ and process it with a callback @func@
 -- Module will be freed on return from @func@
@@ -298,7 +369,7 @@ withModule modname func =
         tvmModFree m
         return b
       err -> do
-        throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> getLastError)
+        throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
 
 -- | Load function named @funcname@ from module @mod@. Function will be
 -- freed when Haskell runtime decide so.
@@ -310,7 +381,7 @@ loadFunction funcname mod = do
     r <- tvmModGetFunction hmod cfuncname 0 pfunc
     case r of
       0 -> peek pfunc >>= newForeignPtr tvmFuncFree_
-      err -> throwIO =<< (TVMFuncLoadFailed <$> pure (fromCInt err) <*> getLastError)
+      err -> throwIO =<< (TVMFuncLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
 
 -- | Load the function named @funcname@ from module @mod@, use it in callback @func@
 -- Function will be freed on return from @func@
@@ -327,7 +398,7 @@ withFunction funcname mod func =
         tvmFuncFree f
         return b
       err -> do
-        str <- getLastError
+        str <- tvmGetLastError
         throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) str)
 
 -- | Call function @fun@ returning @ret@ with @args@
@@ -353,6 +424,6 @@ callTensorFunction ret fun args =
       0 -> do
         return ()
       x -> do
-        str <- getLastError
+        str <- tvmGetLastError
         throwIO (TVMFunCallFailed (fromCInt x) str)
 
