@@ -4,6 +4,9 @@
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE RankNTypes #-}
 module Main where
 
 import Test.Tasty (TestTree, testGroup, defaultMain)
@@ -12,7 +15,8 @@ import Test.Tasty.QuickCheck (testProperty)
 import Test.QuickCheck (property, conjoin, choose, suchThat, forAll, sublistOf,
                         label, classify, whenFail, counterexample, elements,
                         vectorOf, Gen, Testable, frequency, sized, Property,
-                        arbitrary, Arbitrary, listOf)
+                        arbitrary, arbitraryBoundedEnum, Arbitrary, listOf,
+                        oneof)
 import Test.QuickCheck.Monadic (forAllM, monadicIO, run, assert, wp)
 
 import Control.Monad (when)
@@ -28,6 +32,25 @@ import Prelude
 import HTVM.Prelude
 import HTVM
 
+genTensorDataType :: Gen TensorDataType
+genTensorDataType = arbitraryBoundedEnum
+
+data AnyList1 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData [e]) => AnyList1 [e]
+instance Show AnyList1 where show (AnyList1 l) = show l
+data AnyList2 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e) => AnyList2 [[e]]
+instance Show AnyList2 where show (AnyList2 l) = show l
+
+data AnyTensorLike =
+    TL_TD TensorData
+  | TL_List1 AnyList1
+  | TL_List2 AnyList2
+  deriving(Show)
+
+genShape :: Gen [Integer]
+genShape = do
+  ndim <- choose (0,4)
+  vectorOf ndim (choose (0,5))
+
 genTensorList1 :: (Arbitrary e) => Gen [e]
 genTensorList1 = do
     x <- choose (0,10)
@@ -37,13 +60,52 @@ genTensorList2 :: (Arbitrary e) => Gen [[e]]
 genTensorList2 = do
     x <- choose (0,10)
     y <- choose (0,10)
-    vectorOf x $ vectorOf y $ arbitrary
+    flatzero2 <$> (vectorOf x $ vectorOf y $ arbitrary)
 
-genShape :: Gen [Integer]
-genShape = do
-  ndim <- choose (0,4)
-  vectorOf ndim (choose (0,5))
+genAnyTensorLike :: TensorDataType -> Gen AnyTensorLike
+genAnyTensorLike = \case
+  TD_UInt8L1 ->
+    oneof [
+        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Word8])
+      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Word8]])
+      ]
+  TD_SInt32L1 ->
+    oneof [
+        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Int32])
+      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Int32]])
+      ]
+  TD_UInt32L1 ->
+    oneof [
+        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Word32])
+      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Word32]])
+      ]
+  TD_SInt64L1 ->
+    oneof [
+        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Int64])
+      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Int64]])
+      ]
+  TD_UInt64L1 ->
+    oneof [
+        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Word64])
+      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Word64]])
+      ]
+  TD_Float32L1 ->
+    oneof [
+        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Float])
+      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Float]])
+      ]
+  TD_Float64L1 ->
+    oneof [
+        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Double])
+      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Double]])
+      ]
 
+forAnyTensorLike :: forall prop . (Testable prop)
+                 => TensorDataType -> (forall d . (TVMData d, Eq d, Show d) => d -> prop) -> Property
+forAnyTensorLike t f = forAll (genAnyTensorLike t) $ \case
+  TL_TD td -> property $ f td
+  TL_List1 (AnyList1 l) -> property $ f l
+  TL_List2 (AnyList2 l) -> property $ f l
 
 class EpsilonEqual a where
   epsilonEqual :: Rational -> a -> a -> Bool
@@ -65,7 +127,8 @@ instance EpsilonEqual TensorData where
           KDLFloat ->
             all (uncurry $ epsilonEqual eps) (flatternFloat a`zip`flatternFloat b)
 
-assertEpsilonEqual :: (EpsilonEqual a, HasCallStack) => String -> Rational -> a -> a -> Assertion
+assertEpsilonEqual :: (EpsilonEqual a, HasCallStack)
+  => String -> Rational -> a -> a -> Assertion
 assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 
 withTestModule :: Stmt Function -> (ModuleLib -> IO b) -> IO b
@@ -137,11 +200,20 @@ flatzero2 :: [[e]] -> [[e]]
 flatzero2 x | length (concat x) == 0 = []
             | otherwise = x
 
+gen1 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData [e])
+     => ([e] -> IO ()) -> Property
+gen1 go = forAll (genTensorList1 @e) $ monadicIO . run . go
+
+gen2 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e)
+     => ([[e]] -> IO ()) -> Property
+gen2 go = forAll (genTensorList2 @e) $ monadicIO . run . go
+
+
 main :: IO ()
 main = defaultMain $
-    testGroup "All" $ reverse [
+    testGroup "All" $ [
 
-      testGroup "Uninitialized Tensor FFI should work" $
+      testProperty "Uninitialized Tensor FFI should work" $
         let
           go :: forall e . TensorDataTypeRepr e => [Integer] -> IO ()
           go sh = do
@@ -151,45 +223,26 @@ main = defaultMain $
 
           gen :: forall e . TensorDataTypeRepr e => Property
           gen = forAll genShape $ monadicIO . run . go @e
-        in [
-          testProperty "Int32"  $ (gen @Int32)
-        , testProperty "Word32" $ (gen @Word32)
-        , testProperty "Float"  $ (gen @Float)
-        , testProperty "Int64"  $ (gen @Int64)
-        , testProperty "Word64" $ (gen @Word64)
-        , testProperty "Double" $ (gen @Double)
-        ]
+        in
+        forAll genTensorDataType $ \case
+          TD_UInt8L1 ->   (gen @Word8)
+          TD_SInt32L1 ->  (gen @Int32)
+          TD_UInt32L1 ->  (gen @Word32)
+          TD_SInt64L1 ->  (gen @Int64)
+          TD_UInt64L1 ->  (gen @Word64)
+          TD_Float32L1 -> (gen @Float)
+          TD_Float64L1 -> (gen @Double)
 
-    , testGroup "Initiallized Tensor FFI should work" $
-        let
-          go :: forall d . (TVMData d, Eq d, Show d) => d -> IO ()
-          go l = do
-            a <- newTensor l KDLCPU 0
-            assertEqual "poke-peek-1" (tvmTensorNDim a) (tvmDataNDim l)
-            assertEqual "poke-peek-2" (tvmTensorShape a) (tvmDataShape l)
-            l2 <- peekTensor a
-            assertEqual "poke-peek-3" l l2
-            return ()
-
-          gen1 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TVMData [e]) => Property
-          gen1 = forAll (genTensorList1 @e) $ monadicIO . run . go
-
-          gen2 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e) => Property
-          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
-        in [
-          testProperty "[Int32]"      $ (gen1 @Int32)
-        , testProperty "[Word32]"     $ (gen1 @Word32)
-        , testProperty "[Float]"      $ (gen1 @Float)
-        , testProperty "[Int64]"      $ (gen1 @Int64)
-        , testProperty "[Word64]"     $ (gen1 @Word64)
-        , testProperty "[Double]"     $ (gen1 @Double)
-        , testProperty "[[Int32]]"    $ (gen2 @Int32)
-        , testProperty "[[Word32]]"   $ (gen2 @Word32)
-        , testProperty "[[Float]]"    $ (gen2 @Float)
-        , testProperty "[[Int64]]"    $ (gen2 @Int64)
-        , testProperty "[[Word64]]"   $ (gen2 @Word64)
-        , testProperty "[[Double]]"   $ (gen2 @Double)
-        ]
+    , testProperty "Initiallized Tensor FFI should work" $
+        forAll genTensorDataType $ \t ->
+          forAnyTensorLike t $ \l ->
+            monadicIO $ run $ do
+              a <- newTensor l KDLCPU 0
+              assertEqual "poke-peek-1" (tvmTensorNDim a) (tvmDataNDim l)
+              assertEqual "poke-peek-2" (tvmTensorShape a) (tvmDataShape l)
+              l2 <- peekTensor a
+              assertEqual "poke-peek-3" l l2
+              return ()
 
     {-
     , testGroup "Flattern representation should be correct" $
@@ -210,36 +263,21 @@ main = defaultMain $
         -- ??? Works ???
     -}
 
-    , testGroup "Copy FFI should work for tensors" $
-        let
-          go :: forall d . (TVMData d, Eq d, Show d) => d -> IO ()
-          go l = do
-            src <- newTensor l KDLCPU 0
-            dst <- newEmptyTensor (tvmTensorTvmDataType src) (tvmTensorShape src) KDLCPU 0
-            tvmTensorCopy dst src
-            l2 <- peekTensor dst
-            assertEqual "copy-peek-1" l l2
-            return ()
+    , testProperty "fromTD . toTD should be an identity" $
+        forAll genTensorDataType $ \t ->
+          forAnyTensorLike t $ \d ->
+            property $ d == (fromTD . toTD) d
 
-          gen1 :: forall e . (Eq e, Show e, TVMData [e], Arbitrary e) => Property
-          gen1 = forAll (genTensorList1 @e) $ monadicIO . run . go
-
-          gen2 :: forall e . (Eq e, Show e, TensorDataTypeRepr e, Storable e, Arbitrary e) => Property
-          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
-        in [
-          testProperty "[Int32]"      $ (gen1 @Int32)
-        , testProperty "[Word32]"     $ (gen1 @Word32)
-        , testProperty "[Float]"      $ (gen1 @Float)
-        , testProperty "[Int64]"      $ (gen1 @Int64)
-        , testProperty "[Word64]"     $ (gen1 @Word64)
-        , testProperty "[Double]"     $ (gen1 @Double)
-        , testProperty "[[Int32]]"    $ (gen2 @Int32)
-        , testProperty "[[Word32]]"   $ (gen2 @Word32)
-        , testProperty "[[Float]]"    $ (gen2 @Float)
-        , testProperty "[[Int64]]"    $ (gen2 @Int64)
-        , testProperty "[[Word64]]"   $ (gen2 @Word64)
-        , testProperty "[[Double]]"   $ (gen2 @Double)
-        ]
+    , testProperty "Copy FFI should work for tensors" $
+        forAll genTensorDataType $ \t ->
+          forAnyTensorLike t $ \l ->
+            monadicIO $ run $ do
+              src <- newTensor l KDLCPU 0
+              dst <- newEmptyTensor (tvmTensorTvmDataType src) (tvmTensorShape src) KDLCPU 0
+              tvmTensorCopy dst src
+              l2 <- peekTensor dst
+              assertEqual "copy-peek-1" l l2
+              return ()
 
     , testCase "Compiler (g++ -ltvm) should be available" $ do
         withTmpf "htvm-compiler-test" $ \x -> do

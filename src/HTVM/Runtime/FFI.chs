@@ -76,7 +76,7 @@ instance Storable TVMContext where
 data TVMDataType = TVMDataType { tvmCode :: TVMDataTypeCode, tvmBits :: Integer, tvmLanes :: Integer }
   deriving(Eq,Ord,Show,Read)
 
--- | Data types which are supported by this Runtime
+-- | TVM Data types which are supported by HTVM
 data TensorDataType =
     TD_UInt8L1
   | TD_SInt32L1
@@ -85,7 +85,7 @@ data TensorDataType =
   | TD_UInt64L1
   | TD_Float32L1
   | TD_Float64L1
-  deriving(Read,Show,Eq,Ord)
+  deriving(Read,Show,Eq,Ord,Bounded,Enum)
 
 -- | Convertions from TVM type to HTVM type
 fromTvmDataType :: TVMDataType -> Maybe TensorDataType
