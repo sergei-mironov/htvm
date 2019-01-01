@@ -35,15 +35,21 @@ import HTVM
 genTensorDataType :: Gen TensorDataType
 genTensorDataType = arbitraryBoundedEnum
 
-data AnyList1 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData [e]) => AnyList1 [e]
+data AnyScalar = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e, Real e) => AnyScalar e
+instance Show AnyScalar where show (AnyScalar l) = show l
+data AnyList1 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e, Real e) => AnyList1 [e]
 instance Show AnyList1 where show (AnyList1 l) = show l
-data AnyList2 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e) => AnyList2 [[e]]
+data AnyList2 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e, Real e) => AnyList2 [[e]]
 instance Show AnyList2 where show (AnyList2 l) = show l
+data AnyList3 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e, Real e) => AnyList3 [[[e]]]
+instance Show AnyList3 where show (AnyList3 l) = show l
 
 data AnyTensorLike =
     TL_TD TensorData
+  | TL_Scalar AnyScalar
   | TL_List1 AnyList1
   | TL_List2 AnyList2
+  | TL_List3 AnyList3
   deriving(Show)
 
 genShape :: Gen [Integer]
@@ -53,59 +59,78 @@ genShape = do
 
 genTensorList1 :: (Arbitrary e) => Gen [e]
 genTensorList1 = do
-    x <- choose (0,10)
-    vectorOf x $ arbitrary
+  x <- choose (0,10)
+  vectorOf x $ arbitrary
 
 genTensorList2 :: (Arbitrary e) => Gen [[e]]
 genTensorList2 = do
-    x <- choose (0,10)
-    y <- choose (0,10)
-    flatzero2 <$> (vectorOf x $ vectorOf y $ arbitrary)
+  x <- choose (1,10)
+  y <- choose (0,10)
+  (vectorOf x $ vectorOf y $ arbitrary)
+
+genTensorList3 :: (Arbitrary e) => Gen [[[e]]]
+genTensorList3 = do
+  x <- choose (1,10)
+  y <- choose (1,10)
+  z <- choose (0,10)
+  (vectorOf x $ vectorOf y $ vectorOf z $ arbitrary)
+
+genAnyScalar :: TensorDataType -> Gen AnyScalar
+genAnyScalar = \case
+  TD_UInt8L1 -> AnyScalar <$> (arbitrary :: Gen Word8)
+  TD_SInt32L1 -> AnyScalar <$> (arbitrary :: Gen Int32)
+  TD_UInt32L1 -> AnyScalar <$> (arbitrary :: Gen Word32)
+  TD_SInt64L1 -> AnyScalar <$> (arbitrary :: Gen Int64)
+  TD_UInt64L1 -> AnyScalar <$> (arbitrary :: Gen Word64)
+  TD_Float32L1 -> AnyScalar <$> (arbitrary :: Gen Float)
+  TD_Float64L1 -> AnyScalar <$> (arbitrary :: Gen Double)
+
+genAnyList1 :: TensorDataType -> Gen AnyList1
+genAnyList1 = \case
+  TD_UInt8L1 -> AnyList1 <$> (genTensorList1 :: Gen [Word8])
+  TD_SInt32L1 -> AnyList1 <$> (genTensorList1 :: Gen [Int32])
+  TD_UInt32L1 -> AnyList1 <$> (genTensorList1 :: Gen [Word32])
+  TD_SInt64L1 -> AnyList1 <$> (genTensorList1 :: Gen [Int64])
+  TD_UInt64L1 -> AnyList1 <$> (genTensorList1 :: Gen [Word64])
+  TD_Float32L1 -> AnyList1 <$> (genTensorList1 :: Gen [Float])
+  TD_Float64L1 -> AnyList1 <$> (genTensorList1 :: Gen [Double])
+
+genAnyList2 :: TensorDataType -> Gen AnyList2
+genAnyList2 = \case
+  TD_UInt8L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Word8]])
+  TD_SInt32L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Int32]])
+  TD_UInt32L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Word32]])
+  TD_SInt64L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Int64]])
+  TD_UInt64L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Word64]])
+  TD_Float32L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Float]])
+  TD_Float64L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Double]])
+
+genAnyList3 :: TensorDataType -> Gen AnyList3
+genAnyList3 = \case
+  TD_UInt8L1 -> AnyList3 <$> (genTensorList3 @Word8)
+  TD_SInt32L1 -> AnyList3 <$> (genTensorList3 @Int32)
+  TD_UInt32L1 -> AnyList3 <$> (genTensorList3 @Word32)
+  TD_SInt64L1 -> AnyList3 <$> (genTensorList3 @Int64)
+  TD_UInt64L1 -> AnyList3 <$> (genTensorList3 @Word64)
+  TD_Float32L1 -> AnyList3 <$> (genTensorList3 @Float)
+  TD_Float64L1 -> AnyList3 <$> (genTensorList3 @Double)
 
 genAnyTensorLike :: TensorDataType -> Gen AnyTensorLike
-genAnyTensorLike = \case
-  TD_UInt8L1 ->
-    oneof [
-        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Word8])
-      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Word8]])
-      ]
-  TD_SInt32L1 ->
-    oneof [
-        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Int32])
-      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Int32]])
-      ]
-  TD_UInt32L1 ->
-    oneof [
-        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Word32])
-      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Word32]])
-      ]
-  TD_SInt64L1 ->
-    oneof [
-        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Int64])
-      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Int64]])
-      ]
-  TD_UInt64L1 ->
-    oneof [
-        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Word64])
-      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Word64]])
-      ]
-  TD_Float32L1 ->
-    oneof [
-        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Float])
-      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Float]])
-      ]
-  TD_Float64L1 ->
-    oneof [
-        (TL_List1 . AnyList1) <$> (genTensorList1 :: Gen [Double])
-      , (TL_List2 . AnyList2) <$> (genTensorList2 :: Gen [[Double]])
-      ]
+genAnyTensorLike t =
+  oneof [ TL_Scalar <$> genAnyScalar t
+        , TL_List1 <$> genAnyList1 t
+        , TL_List2 <$> genAnyList2 t
+        , TL_List3 <$> genAnyList3 t
+        ]
 
 forAnyTensorLike :: forall prop . (Testable prop)
                  => TensorDataType -> (forall d . (TVMData d, Eq d, Show d) => d -> prop) -> Property
 forAnyTensorLike t f = forAll (genAnyTensorLike t) $ \case
   TL_TD td -> property $ f td
+  TL_Scalar (AnyScalar s) -> property $ f s
   TL_List1 (AnyList1 l) -> property $ f l
   TL_List2 (AnyList2 l) -> property $ f l
+  TL_List3 (AnyList3 l) -> property $ f l
 
 class EpsilonEqual a where
   epsilonEqual :: Rational -> a -> a -> Bool
@@ -125,7 +150,7 @@ instance EpsilonEqual TensorData where
           KDLInt -> td_data a == td_data b
           KDLUInt -> td_data a == td_data b
           KDLFloat ->
-            all (uncurry $ epsilonEqual eps) (flatternFloat a`zip`flatternFloat b)
+            all (uncurry $ epsilonEqual eps) (flatternReal a`zip`flatternReal b)
 
 assertEpsilonEqual :: (EpsilonEqual a, HasCallStack)
   => String -> Rational -> a -> a -> Assertion
@@ -200,7 +225,7 @@ flatzero2 :: [[e]] -> [[e]]
 flatzero2 x | length (concat x) == 0 = []
             | otherwise = x
 
-gen1 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData [e])
+gen1 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e)
      => ([e] -> IO ()) -> Property
 gen1 go = forAll (genTensorList1 @e) $ monadicIO . run . go
 
@@ -278,6 +303,24 @@ main = defaultMain $
               l2 <- peekTensor dst
               assertEqual "copy-peek-1" l l2
               return ()
+
+    , testProperty "Flatterns is well-defined for scalars" $
+        forAll genTensorDataType $ \t ->
+          forAll (genAnyScalar t) $ \(AnyScalar l) ->
+            property $
+              epsilonEqual epsilon [fromRational $ toRational l] (flatternReal l)
+
+    , testProperty "Flattern should is well-defined for 2D lists" $
+        forAll genTensorDataType $ \t ->
+          forAll (genAnyList2 t) $ \(AnyList2 l) ->
+            property $
+              epsilonEqual epsilon (concatMap (map (fromRational . toRational)) l) (flatternReal l)
+
+    , testProperty "Flattern should is well-defined for 3D lists" $
+        forAll genTensorDataType $ \t ->
+          forAll (genAnyList3 t) $ \(AnyList3 l) ->
+            property $
+              epsilonEqual epsilon (concatMap (concatMap (map (fromRational . toRational))) l) (flatternReal l)
 
     , testCase "Compiler (g++ -ltvm) should be available" $ do
         withTmpf "htvm-compiler-test" $ \x -> do
