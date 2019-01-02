@@ -34,6 +34,7 @@ library
     , bytestring
     , directory
     , temporary
+    , vector
   hs-source-dirs:
     src
   default-language:
@@ -78,6 +79,7 @@ test-suite test
     , directory
     , temporary
     , text
+    , vector
   default-language: Haskell2010
   extra-libraries:
     tvm_runtime dl pthread
@@ -89,6 +91,8 @@ executable demo
     app/demo
   main-is:
     Main.hs
+  other-modules:
+    MNIST
   default-language:
     Haskell2010
   build-depends:

@@ -29,6 +29,8 @@ import System.Directory (getTemporaryDirectory)
 import System.IO.Temp (withTempFile)
 import Prelude
 
+import qualified Data.Vector.Unboxed as VU
+
 import HTVM.Prelude
 import HTVM
 
@@ -43,6 +45,8 @@ data AnyList2 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, Tenso
 instance Show AnyList2 where show (AnyList2 l) = show l
 data AnyList3 = forall e . (Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e, Real e) => AnyList3 [[[e]]]
 instance Show AnyList3 where show (AnyList3 l) = show l
+data AnyVector = forall e . (VU.Unbox e, Storable e, Eq e, Read e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e, Real e) => AnyVector (VU.Vector e)
+instance Show AnyVector where show (AnyVector l) = show (VU.toList l)
 
 data AnyTensorLike =
     TL_TD TensorData
@@ -50,6 +54,7 @@ data AnyTensorLike =
   | TL_List1 AnyList1
   | TL_List2 AnyList2
   | TL_List3 AnyList3
+  | TL_Vector AnyVector
   deriving(Show)
 
 genShape :: Gen [Integer]
@@ -95,6 +100,16 @@ genAnyList1 = \case
   TD_Float32L1 -> AnyList1 <$> (genTensorList1 :: Gen [Float])
   TD_Float64L1 -> AnyList1 <$> (genTensorList1 :: Gen [Double])
 
+genAnyVector :: TensorDataType -> Gen AnyVector
+genAnyVector = \case
+  TD_UInt8L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Word8])
+  TD_SInt32L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Int32])
+  TD_UInt32L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Word32])
+  TD_SInt64L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Int64])
+  TD_UInt64L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Word64])
+  TD_Float32L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Float])
+  TD_Float64L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Double])
+
 genAnyList2 :: TensorDataType -> Gen AnyList2
 genAnyList2 = \case
   TD_UInt8L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Word8]])
@@ -121,6 +136,7 @@ genAnyTensorLike t =
         , TL_List1 <$> genAnyList1 t
         , TL_List2 <$> genAnyList2 t
         , TL_List3 <$> genAnyList3 t
+        , TL_Vector <$> genAnyVector t
         ]
 
 forAnyTensorLike :: forall prop . (Testable prop)
@@ -131,6 +147,7 @@ forAnyTensorLike t f = forAll (genAnyTensorLike t) $ \case
   TL_List1 (AnyList1 l) -> property $ f l
   TL_List2 (AnyList2 l) -> property $ f l
   TL_List3 (AnyList3 l) -> property $ f l
+  TL_Vector (AnyVector v) -> property $ f v
 
 class EpsilonEqual a where
   epsilonEqual :: Rational -> a -> a -> Bool
@@ -221,9 +238,11 @@ testFunction ishape func_ut func_checker =
 epsilon :: Rational
 epsilon = 1e-5
 
+{-
 flatzero2 :: [[e]] -> [[e]]
 flatzero2 x | length (concat x) == 0 = []
             | otherwise = x
+-}
 
 gen1 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e)
      => ([e] -> IO ()) -> Property

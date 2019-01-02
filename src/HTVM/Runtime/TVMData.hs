@@ -27,11 +27,11 @@ import Foreign (newForeignPtr, Ptr, Storable(..), alloca,
                 allocaArray, peek, poke, peekArray, pokeArray,
                 castPtr, advancePtr, malloc, mallocArray,
                 withForeignPtr, Storable(..), withArray)
-
 import HTVM.Prelude
 import HTVM.Runtime.FFI
 import System.IO.Unsafe (unsafePerformIO)
 
+import qualified Data.Vector.Unboxed as VU
 
 -- | Utilitary class to convert tuples to lists
 class TupleList i a | i -> a where
@@ -142,13 +142,21 @@ instance TVMData x => TVMData [x] where
     forM_ [0..s-1] $ \i ->
       tvmPoke (l!!(fromInteger i)) (advancePtr ptr (fromInteger $ i*(tensorDataTypeSize sh t)))
 
+instance (VU.Unbox e, TVMData e, Storable e, TensorDataTypeRepr e) => TVMData (VU.Vector e) where
+  tvmStaticDataType = Just (tensorDataType @e)
+  tvmStaticNDims = Just 1
+  tvmStaticIShape = Nothing
+  tvmIShape d = [toInteger $ VU.length d]
+  tvmPoke d ptr = tvmPoke1 (VU.toList d) ptr
+  tvmPeek typ shape ptr = VU.fromList <$> tvmPeek1 typ shape ptr
+
 tvmDataShape :: (TVMData d) => d -> [Integer]
 tvmDataShape = tvmIShape
 
 tvmDataNDim :: (TVMData d) => d -> Integer
 tvmDataNDim = ilength . tvmDataShape
 
--- | Flattern real flatterns any `TensorLike d` into list of doubles.
+-- | Flatterns any `TensorLike d` into list of doubles.
 flatternReal :: (TVMData d) => d -> [Double]
 flatternReal d =
   let
