@@ -37,7 +37,7 @@ data TVMError =
   | UnsupportedTVMDataType TVMDataType
   | DimMismatch Integer Integer
   | ShapeMismatch [Integer] [Integer]
-  | TypeMismatch TensorDataType TensorDataType
+  | TypeMismatch String TensorDataType TensorDataType
   deriving(Show,Read,Ord,Eq)
 
 instance Exception TVMError
@@ -110,7 +110,6 @@ toTvmDataType = \case
   TD_UInt64L1  -> (TVMDataType KDLUInt  64 1)
   TD_Float64L1  -> (TVMDataType KDLFloat 64 1)
 
-
 -- | Provide TVM type information for well-known Haskell types
 class TensorDataTypeRepr e where
   tensorDataType :: TensorDataType
@@ -123,6 +122,9 @@ instance TensorDataTypeRepr Int64  where tensorDataType = TD_SInt64L1
 instance TensorDataTypeRepr Word64 where tensorDataType = TD_UInt64L1
 instance TensorDataTypeRepr Double where tensorDataType = TD_Float64L1
 
+
+tensorDataTypeSize :: TensorDataType -> Integer
+tensorDataTypeSize = (`div`8) . tvmBits . toTvmDataType
 
 -- | Flattern Tensor is a container which stores its elements in 1D-array
 data TensorData = TensorData {
@@ -324,8 +326,8 @@ tvmTensorSize ft = tvmDataTypeSize (tvmTensorShape ft) (tvmTensorTvmDataType ft)
 tvmDataTypeSize :: [Integer] -> TVMDataType -> Integer
 tvmDataTypeSize shape (TVMDataType _ bits lanes) = (foldr (*) 1 shape) * ((bits*lanes + 7) `div` 8)
 
-tensorDataTypeSize :: [Integer] -> TensorDataType -> Integer
-tensorDataTypeSize shape = tvmDataTypeSize shape . toTvmDataType
+tensorDataTypeArraySize :: [Integer] -> TensorDataType -> Integer
+tensorDataTypeArraySize shape = tvmDataTypeSize shape . toTvmDataType
 
 tvmTensorCopy :: TVMTensor -> TVMTensor -> IO ()
 tvmTensorCopy dst src = do

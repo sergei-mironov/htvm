@@ -80,6 +80,8 @@ test-suite test
     , temporary
     , text
     , vector
+    , transformers
+    , exceptions
   default-language: Haskell2010
   extra-libraries:
     tvm_runtime dl pthread

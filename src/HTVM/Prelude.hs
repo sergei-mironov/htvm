@@ -37,3 +37,4 @@ withTmpf :: String -> (FilePath -> IO x) -> IO x
 withTmpf nm act = do
   tmp <- getTemporaryDirectory
   withTempFile tmp nm $ \x h -> hClose h >> act x
+

@@ -9,7 +9,7 @@
 {-# LANGUAGE RankNTypes #-}
 module Main where
 
-import Test.Tasty (TestTree, testGroup, defaultMain)
+import Test.Tasty (TestTree, testGroup, defaultMain, withResource)
 import Test.Tasty.HUnit (Assertion, HasCallStack, testCase, assertBool, assertEqual, (@?=))
 import Test.Tasty.QuickCheck (testProperty)
 import Test.QuickCheck (property, conjoin, choose, suchThat, forAll, sublistOf,
@@ -17,18 +17,21 @@ import Test.QuickCheck (property, conjoin, choose, suchThat, forAll, sublistOf,
                         vectorOf, Gen, Testable, frequency, sized, Property,
                         arbitrary, arbitraryBoundedEnum, Arbitrary, listOf,
                         oneof)
-import Test.QuickCheck.Monadic (forAllM, monadicIO, run, assert, wp)
+import Test.QuickCheck.Property (showCounterexample)
+import Test.QuickCheck.Monadic (forAllM, monadicIO, run, assert, wp, PropertyM(..))
 
-import Control.Monad (when)
+import Control.Monad (when, forM, (>=>))
 import Data.Functor.Foldable (Fix(..), Recursive(..), Corecursive(..))
 import Data.Maybe (fromMaybe)
 import Data.Text (isInfixOf)
 import Data.Monoid ((<>))
 import Foreign (Storable(..))
-import System.Directory (getTemporaryDirectory)
+import System.Directory (getTemporaryDirectory, removeFile)
 import System.IO.Temp (withTempFile)
+import System.IO (Handle, hClose, openTempFile, openBinaryTempFile)
 import Prelude
 
+import qualified Control.Monad.Catch as MC
 import qualified Data.Vector.Unboxed as VU
 
 import HTVM.Prelude
@@ -62,19 +65,22 @@ genShape = do
   ndim <- choose (0,4)
   vectorOf ndim (choose (0,5))
 
-genTensorList1 :: (Arbitrary e) => Gen [e]
-genTensorList1 = do
+genFixedList1 :: (Arbitrary e) => Integer -> Gen [e]
+genFixedList1 sh = vectorOf (fromInteger sh) $ arbitrary
+
+genList1 :: (Arbitrary e) => Gen [e]
+genList1 = do
   x <- choose (0,10)
   vectorOf x $ arbitrary
 
-genTensorList2 :: (Arbitrary e) => Gen [[e]]
-genTensorList2 = do
+genList2 :: (Arbitrary e) => Gen [[e]]
+genList2 = do
   x <- choose (1,10)
   y <- choose (0,10)
   (vectorOf x $ vectorOf y $ arbitrary)
 
-genTensorList3 :: (Arbitrary e) => Gen [[[e]]]
-genTensorList3 = do
+genList3 :: (Arbitrary e) => Gen [[[e]]]
+genList3 = do
   x <- choose (1,10)
   y <- choose (1,10)
   z <- choose (0,10)
@@ -92,43 +98,43 @@ genAnyScalar = \case
 
 genAnyList1 :: TensorDataType -> Gen AnyList1
 genAnyList1 = \case
-  TD_UInt8L1 -> AnyList1 <$> (genTensorList1 :: Gen [Word8])
-  TD_SInt32L1 -> AnyList1 <$> (genTensorList1 :: Gen [Int32])
-  TD_UInt32L1 -> AnyList1 <$> (genTensorList1 :: Gen [Word32])
-  TD_SInt64L1 -> AnyList1 <$> (genTensorList1 :: Gen [Int64])
-  TD_UInt64L1 -> AnyList1 <$> (genTensorList1 :: Gen [Word64])
-  TD_Float32L1 -> AnyList1 <$> (genTensorList1 :: Gen [Float])
-  TD_Float64L1 -> AnyList1 <$> (genTensorList1 :: Gen [Double])
+  TD_UInt8L1 -> AnyList1 <$> (genList1 :: Gen [Word8])
+  TD_SInt32L1 -> AnyList1 <$> (genList1 :: Gen [Int32])
+  TD_UInt32L1 -> AnyList1 <$> (genList1 :: Gen [Word32])
+  TD_SInt64L1 -> AnyList1 <$> (genList1 :: Gen [Int64])
+  TD_UInt64L1 -> AnyList1 <$> (genList1 :: Gen [Word64])
+  TD_Float32L1 -> AnyList1 <$> (genList1 :: Gen [Float])
+  TD_Float64L1 -> AnyList1 <$> (genList1 :: Gen [Double])
 
 genAnyVector :: TensorDataType -> Gen AnyVector
 genAnyVector = \case
-  TD_UInt8L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Word8])
-  TD_SInt32L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Int32])
-  TD_UInt32L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Word32])
-  TD_SInt64L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Int64])
-  TD_UInt64L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Word64])
-  TD_Float32L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Float])
-  TD_Float64L1 -> AnyVector <$> VU.fromList <$> (genTensorList1 :: Gen [Double])
+  TD_UInt8L1 -> AnyVector <$> VU.fromList <$> (genList1 :: Gen [Word8])
+  TD_SInt32L1 -> AnyVector <$> VU.fromList <$> (genList1 :: Gen [Int32])
+  TD_UInt32L1 -> AnyVector <$> VU.fromList <$> (genList1 :: Gen [Word32])
+  TD_SInt64L1 -> AnyVector <$> VU.fromList <$> (genList1 :: Gen [Int64])
+  TD_UInt64L1 -> AnyVector <$> VU.fromList <$> (genList1 :: Gen [Word64])
+  TD_Float32L1 -> AnyVector <$> VU.fromList <$> (genList1 :: Gen [Float])
+  TD_Float64L1 -> AnyVector <$> VU.fromList <$> (genList1 :: Gen [Double])
 
 genAnyList2 :: TensorDataType -> Gen AnyList2
 genAnyList2 = \case
-  TD_UInt8L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Word8]])
-  TD_SInt32L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Int32]])
-  TD_UInt32L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Word32]])
-  TD_SInt64L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Int64]])
-  TD_UInt64L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Word64]])
-  TD_Float32L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Float]])
-  TD_Float64L1 -> AnyList2 <$> (genTensorList2 :: Gen [[Double]])
+  TD_UInt8L1 -> AnyList2 <$> (genList2 :: Gen [[Word8]])
+  TD_SInt32L1 -> AnyList2 <$> (genList2 :: Gen [[Int32]])
+  TD_UInt32L1 -> AnyList2 <$> (genList2 :: Gen [[Word32]])
+  TD_SInt64L1 -> AnyList2 <$> (genList2 :: Gen [[Int64]])
+  TD_UInt64L1 -> AnyList2 <$> (genList2 :: Gen [[Word64]])
+  TD_Float32L1 -> AnyList2 <$> (genList2 :: Gen [[Float]])
+  TD_Float64L1 -> AnyList2 <$> (genList2 :: Gen [[Double]])
 
 genAnyList3 :: TensorDataType -> Gen AnyList3
 genAnyList3 = \case
-  TD_UInt8L1 -> AnyList3 <$> (genTensorList3 @Word8)
-  TD_SInt32L1 -> AnyList3 <$> (genTensorList3 @Int32)
-  TD_UInt32L1 -> AnyList3 <$> (genTensorList3 @Word32)
-  TD_SInt64L1 -> AnyList3 <$> (genTensorList3 @Int64)
-  TD_UInt64L1 -> AnyList3 <$> (genTensorList3 @Word64)
-  TD_Float32L1 -> AnyList3 <$> (genTensorList3 @Float)
-  TD_Float64L1 -> AnyList3 <$> (genTensorList3 @Double)
+  TD_UInt8L1 -> AnyList3 <$> (genList3 @Word8)
+  TD_SInt32L1 -> AnyList3 <$> (genList3 @Int32)
+  TD_UInt32L1 -> AnyList3 <$> (genList3 @Word32)
+  TD_SInt64L1 -> AnyList3 <$> (genList3 @Int64)
+  TD_UInt64L1 -> AnyList3 <$> (genList3 @Word64)
+  TD_Float32L1 -> AnyList3 <$> (genList3 @Float)
+  TD_Float64L1 -> AnyList3 <$> (genList3 @Double)
 
 genAnyTensorLike :: TensorDataType -> Gen AnyTensorLike
 genAnyTensorLike t =
@@ -137,7 +143,17 @@ genAnyTensorLike t =
         , TL_List2 <$> genAnyList2 t
         , TL_List3 <$> genAnyList3 t
         , TL_Vector <$> genAnyVector t
+        , TL_TD <$> (\(AnyList1 l) -> toTD l) <$> genAnyList1 t
         ]
+
+genAnyTensorData :: TensorDataType -> Gen TensorData
+genAnyTensorData t = genAnyTensorLike t >>= return . \case
+  TL_TD td -> td
+  TL_Scalar (AnyScalar s) -> toTD s
+  TL_List1 (AnyList1 l) -> toTD l
+  TL_List2 (AnyList2 l) -> toTD l
+  TL_List3 (AnyList3 l) -> toTD l
+  TL_Vector (AnyVector v) -> toTD v
 
 forAnyTensorLike :: forall prop . (Testable prop)
                  => TensorDataType -> (forall d . (TVMData d, Eq d, Show d) => d -> prop) -> Property
@@ -173,6 +189,32 @@ assertEpsilonEqual :: (EpsilonEqual a, HasCallStack)
   => String -> Rational -> a -> a -> Assertion
 assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 
+ignoringIOErrors :: MC.MonadCatch m => m () -> m ()
+ignoringIOErrors ioe = ioe `MC.catch` (\e -> const (return ()) (e :: IOError))
+
+testModelProperty :: String
+                  -> Stmt Function
+                  -> Gen ([TensorData], TensorData)
+                  -> TestTree
+testModelProperty desc mf gens =
+  withResource (do
+    tmpDir <- getTemporaryDirectory
+    (nm,h) <- openTempFile tmpDir "htvm-test-module"
+    hClose h
+    buildModule defaultConfig nm $
+      stageModule $ do
+        f <- mf
+        modul [f]
+  )
+  (\(ModuleLib nm _) -> do
+    ignoringIOErrors (removeFile nm)
+  )
+  (\act -> do
+    testProperty desc $ do
+      monadicIO $ do
+        run act >>= flip modelProperty gens
+  )
+
 withTestModule :: Stmt Function -> (ModuleLib -> IO b) -> IO b
 withTestModule mf act =
   withTmpf "htvm-test-module" $ \fp -> do
@@ -207,16 +249,15 @@ withTestFunction mf handler = withTestModule mf $ flip withSingleFuncModule hand
 shouldCompile :: Stmt Function -> IO ()
 shouldCompile = flip withTestFunction (const $ return ())
 
-modelProperty :: ModuleLib -> Gen ([TVMTensor],TVMTensor) -> Property
-modelProperty modlib gen =
-  monadicIO $ do
-    func <- run $ singleFuncModule modlib
-    forAllM gen $ \(args,expected) -> do
-      actual <- run $ newEmptyTensor (toTvmDataType $ tensorDataType @Float) (tvmTensorShape expected) KDLCPU 0
-      run $ callTensorFunction actual func args
-      (a :: TensorData) <- run $ peekTensor actual
-      (e :: TensorData) <- run $ peekTensor expected
-      assert $ (epsilonEqual epsilon a e)
+modelProperty :: ModuleLib -> Gen ([TensorData],TensorData) -> PropertyM IO ()
+modelProperty modlib gen = do
+  func <- run $ singleFuncModule modlib
+  forAllM gen $ \(args,expected) -> do
+    tact <- run $ newEmptyTensor (toTvmDataType $ tensorDataType @Float) (tvmIShape expected) KDLCPU 0
+    targs <- forM args $ \t -> run $ newTensor t KDLCPU 0
+    run $ callTensorFunction tact func targs
+    (actual :: TensorData) <- run $ peekTensor tact
+    assert $ (epsilonEqual epsilon actual expected)
 
 
 {-
@@ -246,11 +287,11 @@ flatzero2 x | length (concat x) == 0 = []
 
 gen1 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e, TVMData e)
      => ([e] -> IO ()) -> Property
-gen1 go = forAll (genTensorList1 @e) $ monadicIO . run . go
+gen1 go = forAll (genList1 @e) $ monadicIO . run . go
 
 gen2 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e)
      => ([[e]] -> IO ()) -> Property
-gen2 go = forAll (genTensorList2 @e) $ monadicIO . run . go
+gen2 go = forAll (genList2 @e) $ monadicIO . run . go
 
 
 main :: IO ()
@@ -299,7 +340,7 @@ main = defaultMain $
             return ()
 
           gen2 :: forall e i . (Eq e, Show e, TVMData [[e]] i e, Arbitrary e, Storable e) => Property
-          gen2 = forAll (genTensorList2 @e) $ monadicIO . run . go . flatzero2
+          gen2 = forAll (genList2 @e) $ monadicIO . run . go . flatzero2
         in [
           testProperty "[[Float]]"  $ (gen2 @Float)
         , testProperty "[[Double]]" $ (gen2 @Double)
@@ -340,6 +381,21 @@ main = defaultMain $
           forAll (genAnyList3 t) $ \(AnyList3 l) ->
             property $
               epsilonEqual epsilon (concatMap (concatMap (map (fromRational . toRational))) l) (flatternReal l)
+
+    , let
+          dim0 = 3
+      in
+      testModelProperty "Simple model should work (QC)" (do
+          s <- shapevar [fromInteger dim0]
+          function "a" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+            compute s $ \e -> a![e] + b![e]
+          )
+          (do
+            a <- genFixedList1 @Float dim0
+            b <- genFixedList1 @Float dim0
+            return $ ([toTD a, toTD b], toTD $ map (uncurry (+)) (zip a b))
+          )
+
 
     , testCase "Compiler (g++ -ltvm) should be available" $ do
         withTmpf "htvm-compiler-test" $ \x -> do

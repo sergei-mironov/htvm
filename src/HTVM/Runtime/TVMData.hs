@@ -9,6 +9,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module HTVM.Runtime.TVMData where
 
@@ -75,7 +76,7 @@ class TVMData d where
   toTD :: d -> TensorData
   toTD d = unsafePerformIO $
     let
-      sz = tensorDataTypeSize (tvmIShape d) (tvmDataType d)
+      sz = tensorDataTypeArraySize (tvmIShape d) (tvmDataType d)
     in do
     allocaArray (fromInteger sz) $ \parr -> do
       tvmPoke d parr
@@ -99,7 +100,7 @@ tvmPeek0 typ shape ptr =
       case shape of
         [] -> peek (castPtr ptr)
         sh -> throwIO $ DimMismatch (ilength sh) 0
-    False -> throwIO $ TypeMismatch typ (tensorDataType @e)
+    False -> throwIO $ TypeMismatch "tvmPeek0" typ (tensorDataType @e)
 
 instance TVMData Word8 where tvmStaticDataType = Just $ tensorDataType @Word8; tvmStaticNDims = Just 0; tvmStaticIShape = Just []; tvmPoke = tvmPoke0; tvmPeek = tvmPeek0
 instance TVMData Int32 where tvmStaticDataType = Just $ tensorDataType @Int32; tvmStaticNDims = Just 0; tvmStaticIShape = Just []; tvmPoke = tvmPoke0; tvmPeek = tvmPeek0
@@ -118,7 +119,7 @@ tvmPeek1 typ shape ptr =
       case shape of
         [x] -> peekArray (fromInteger x) (castPtr ptr)
         sh -> throwIO $ DimMismatch (ilength sh) 1
-    False -> throwIO $ TypeMismatch typ (tensorDataType @e)
+    False -> throwIO $ TypeMismatch "tvmPeek1" typ (tensorDataType @e)
 
 instance TVMData x => TVMData [x] where
   tvmStaticDataType = tvmStaticDataType @x
@@ -132,7 +133,7 @@ instance TVMData x => TVMData [x] where
   tvmPeek t [] ptr = error "tvmPeek: attempt to peek from scalar-ptr to list"
   tvmPeek t (s:sh) ptr =
     forM [0..s-1] $ \i -> do
-      tvmPeek t sh (advancePtr ptr (fromInteger $ i*(tensorDataTypeSize sh t)))
+      tvmPeek t sh (advancePtr ptr (fromInteger $ i*(tensorDataTypeArraySize sh t)))
   tvmPoke [] ptr = return () -- error "tvmPoke: attempt to poke from empty list"
   tvmPoke l ptr =
     let
@@ -140,7 +141,7 @@ instance TVMData x => TVMData [x] where
       t = tvmDataType l
     in
     forM_ [0..s-1] $ \i ->
-      tvmPoke (l!!(fromInteger i)) (advancePtr ptr (fromInteger $ i*(tensorDataTypeSize sh t)))
+      tvmPoke (l!!(fromInteger i)) (advancePtr ptr (fromInteger $ i*(tensorDataTypeArraySize sh t)))
 
 instance (VU.Unbox e, TVMData e, Storable e, TensorDataTypeRepr e) => TVMData (VU.Vector e) where
   tvmStaticDataType = Just (tensorDataType @e)
@@ -164,13 +165,13 @@ flatternReal d =
     sh1 = [foldr1 (*) (if null $ td_shape td then [1] else td_shape td)]
   in
   case td_type td of
-    TD_UInt8L1 -> map (fromRational . toRational) $ (fromTD td{td_shape=sh1} :: [Word8])
-    TD_SInt32L1 -> map (fromRational . toRational) $ (fromTD td{td_shape=sh1} :: [Int32])
-    TD_UInt32L1 -> map (fromRational . toRational) $ (fromTD td{td_shape=sh1} :: [Word32])
-    TD_Float32L1 -> map (fromRational . toRational) $ (fromTD td{td_shape=sh1} :: [Float])
-    TD_SInt64L1 -> map (fromRational . toRational) $ (fromTD td{td_shape=sh1} :: [Int64])
-    TD_UInt64L1 -> map (fromRational . toRational) $ (fromTD td{td_shape=sh1} :: [Word64])
-    TD_Float64L1 -> fromTD td{td_shape=sh1} :: [Double]
+    TD_UInt8L1 -> map (fromRational . toRational) $ fromTD @[Word8] td{td_shape=sh1}
+    TD_SInt32L1 -> map (fromRational . toRational) $ fromTD @[Int32] td{td_shape=sh1}
+    TD_UInt32L1 -> map (fromRational . toRational) $ fromTD @[Word32] td{td_shape=sh1}
+    TD_Float32L1 -> map (fromRational . toRational) $ fromTD @[Float] td{td_shape=sh1}
+    TD_SInt64L1 -> map (fromRational . toRational) $ fromTD @[Int64] td{td_shape=sh1}
+    TD_UInt64L1 -> map (fromRational . toRational) $ fromTD @[Word64] td{td_shape=sh1}
+    TD_Float64L1 -> fromTD @[Double] td{td_shape=sh1}
 
 instance TVMData TensorData where
   tvmStaticDataType = Nothing
@@ -179,7 +180,11 @@ instance TVMData TensorData where
   tvmNDims = ilength . tvmIShape
   tvmStaticIShape = Nothing
   tvmIShape = td_shape
-  tvmPeek tp shape ptr = TensorData <$> pure shape <*> pure tp <*> tvmPeek1 tp [foldr1 (*) shape] ptr
+  tvmPeek tp shape ptr =
+    TensorData
+      <$> pure shape
+      <*> pure tp
+      <*> tvmPeek1 (tensorDataType @Word8) [tensorDataTypeSize tp * (foldr1 (*) shape)] ptr
   tvmPoke (TensorData sh typ d) ptr = tvmPoke1 d ptr
   toTD = id
   fromTD = id
@@ -250,7 +255,7 @@ pokeTensor ft d = do
   when (tvmTensorShape ft /= tvmDataShape d) $
     throwIO (ShapeMismatch (tvmTensorShape ft) (tvmDataShape d))
   when (typ /= tvmDataType d) $
-    throwIO (TypeMismatch typ (tvmDataType d))
+    throwIO (TypeMismatch "pokeTensor" typ (tvmDataType d))
   case tvmTensorDevice ft of
     KDLCPU -> do
       tvmPoke d (unsafeTvmTensorData ft)
