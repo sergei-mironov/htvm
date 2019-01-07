@@ -115,6 +115,9 @@ data TenFuncName =
   | TenElemwise Text
   | TenSplit
   | TenDifferentiate
+  | TenBroadcastTo
+  | TenFlatten
+  | TenDense
   deriving(Show,Read,Ord,Eq)
 
 -- | Kinds of arguments received by `TenCall`
@@ -125,6 +128,7 @@ data TenArg =
   | IntsArg [Integer]        -- ^ Integer argument TODO: remove?
   | TypeArg Type             -- ^ Type argument
   | LayoutArg Layout         -- ^ Layout argument
+  | ShapeArg ShapeExpr
   deriving(Show,Read,Ord,Eq)
 
 -- | Convolution layout
@@ -167,4 +171,30 @@ data TenExpr =
 
 -- | Placeholder collects information about entry or exit points of TVM programs
 type Placeholder = (Text,Type,ShapeExpr)
+
+
+-- | ModuleGenSrc represents C++ sources of Module generator. mgen_mod is a
+-- user-defined data representing some initial AST of the module
+data ModuleGenSrc a = ModuleGenSrc { mgen_mod :: a, mgen_src :: Text }
+  deriving(Show,Read,Eq,Ord)
+
+-- | Represents C++ sources arbitrary program
+data ProgramSrc = ProgramSrc { prog_src :: Text }
+  deriving(Show,Read,Eq,Ord)
+
+-- | Represent path to arbitrary program's binary
+data ProgramBin = ProgramBin FilePath
+  deriving(Show,Read,Eq,Ord)
+
+-- | Represent path to Module generator binary
+data ModuleGen a = ModuleGen FilePath a
+  deriving(Show,Read,Eq,Ord)
+
+-- | LLVM Assembly produced by Module generator, along with source Module
+data Assembly a = Assembly a String
+  deriving(Show,Read,Eq,Ord)
+
+-- | Path to compiled Module along with its source expression
+data ModuleLib a = ModuleLib FilePath a
+  deriving(Show,Read,Eq,Ord)
 

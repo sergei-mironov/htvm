@@ -68,16 +68,22 @@ genShape = do
 genFixedList1 :: (Arbitrary e) => Integer -> Gen [e]
 genFixedList1 sh = vectorOf (fromInteger sh) $ arbitrary
 
+genFixedList2 :: (Arbitrary e) => Integer -> Integer -> Gen [[e]]
+genFixedList2 a b = vectorOf (fromInteger a) $ vectorOf (fromInteger b) $ arbitrary
+
+genFixedList3 :: (Arbitrary e) => Integer -> Integer -> Integer -> Gen [[[e]]]
+genFixedList3 a b c = vectorOf (fromInteger a) $ vectorOf (fromInteger b) $ vectorOf (fromInteger c) $ arbitrary
+
 genList1 :: (Arbitrary e) => Gen [e]
 genList1 = do
   x <- choose (0,10)
-  vectorOf x $ arbitrary
+  genFixedList1 x
 
 genList2 :: (Arbitrary e) => Gen [[e]]
 genList2 = do
   x <- choose (1,10)
   y <- choose (0,10)
-  (vectorOf x $ vectorOf y $ arbitrary)
+  genFixedList2 x y
 
 genList3 :: (Arbitrary e) => Gen [[[e]]]
 genList3 = do
@@ -183,7 +189,7 @@ instance EpsilonEqual TensorData where
           KDLInt -> td_data a == td_data b
           KDLUInt -> td_data a == td_data b
           KDLFloat ->
-            all (uncurry $ epsilonEqual eps) (flatternReal a`zip`flatternReal b)
+            all (uncurry $ epsilonEqual eps) (flattenReal a`zip`flattenReal b)
 
 assertEpsilonEqual :: (EpsilonEqual a, HasCallStack)
   => String -> Rational -> a -> a -> Assertion
@@ -215,7 +221,7 @@ testModelProperty desc mf gens =
         run act >>= flip modelProperty gens
   )
 
-withTestModule :: Stmt Function -> (ModuleLib -> IO b) -> IO b
+withTestModule :: Stmt Function -> (ModuleLib Module -> IO b) -> IO b
 withTestModule mf act =
   withTmpf "htvm-test-module" $ \fp -> do
     {- traceM $ "file: " <> fp -}
@@ -225,7 +231,7 @@ withTestModule mf act =
           f <- mf
           modul [f]
 
-withSingleFuncModule :: ModuleLib -> (TVMFunction -> IO b) -> IO b
+withSingleFuncModule :: ModuleLib Module -> (TVMFunction -> IO b) -> IO b
 withSingleFuncModule modlib handler =
   case modlib of
     (ModuleLib modpath (Module [Function nm _] _)) ->
@@ -234,7 +240,7 @@ withSingleFuncModule modlib handler =
         handler hfun
     _ -> fail "withSingleFuncModule expects module with single function"
 
-singleFuncModule :: ModuleLib -> IO TVMFunction
+singleFuncModule :: ModuleLib Module -> IO TVMFunction
 singleFuncModule modlib =
   case modlib of
     (ModuleLib modpath (Module [Function nm _] _)) -> do
@@ -249,7 +255,7 @@ withTestFunction mf handler = withTestModule mf $ flip withSingleFuncModule hand
 shouldCompile :: Stmt Function -> IO ()
 shouldCompile = flip withTestFunction (const $ return ())
 
-modelProperty :: ModuleLib -> Gen ([TensorData],TensorData) -> PropertyM IO ()
+modelProperty :: ModuleLib Module -> Gen ([TensorData],TensorData) -> PropertyM IO ()
 modelProperty modlib gen = do
   func <- run $ singleFuncModule modlib
   forAllM gen $ \(args,expected) -> do
@@ -296,7 +302,7 @@ gen2 go = forAll (genList2 @e) $ monadicIO . run . go
 
 main :: IO ()
 main = defaultMain $
-    testGroup "All" $ [
+    testGroup "All" $ reverse [
 
       testProperty "Uninitialized Tensor FFI should work" $
         let
@@ -330,13 +336,13 @@ main = defaultMain $
               return ()
 
     {-
-    , testGroup "Flattern representation should be correct" $
+    , testGroup "Flatten representation should be correct" $
         let
           go :: forall d i e . (TVMData d i e, Eq e, Show e, Eq d, Show d, Storable e) => d -> IO ()
           go l = do
             a <- newTensor l KDLCPU 0
-            f <- peekTensor @(FlatternTensor e) a
-            assertEqual "Failed!" f (flatternTensor l)
+            f <- peekTensor @(FlattenTensor e) a
+            assertEqual "Failed!" f (FlattenTensor l)
             return ()
 
           gen2 :: forall e i . (Eq e, Show e, TVMData [[e]] i e, Arbitrary e, Storable e) => Property
@@ -364,23 +370,23 @@ main = defaultMain $
               assertEqual "copy-peek-1" l l2
               return ()
 
-    , testProperty "Flatterns is well-defined for scalars" $
+    , testProperty "Flattens is well-defined for scalars" $
         forAll genTensorDataType $ \t ->
           forAll (genAnyScalar t) $ \(AnyScalar l) ->
             property $
-              epsilonEqual epsilon [fromRational $ toRational l] (flatternReal l)
+              epsilonEqual epsilon [fromRational $ toRational l] (flattenReal l)
 
-    , testProperty "Flattern should is well-defined for 2D lists" $
+    , testProperty "Flatten should is well-defined for 2D lists" $
         forAll genTensorDataType $ \t ->
           forAll (genAnyList2 t) $ \(AnyList2 l) ->
             property $
-              epsilonEqual epsilon (concatMap (map (fromRational . toRational)) l) (flatternReal l)
+              epsilonEqual epsilon (concatMap (map (fromRational . toRational)) l) (flattenReal l)
 
-    , testProperty "Flattern should is well-defined for 3D lists" $
+    , testProperty "Flatten should is well-defined for 3D lists" $
         forAll genTensorDataType $ \t ->
           forAll (genAnyList3 t) $ \(AnyList3 l) ->
             property $
-              epsilonEqual epsilon (concatMap (concatMap (map (fromRational . toRational))) l) (flatternReal l)
+              epsilonEqual epsilon (concatMap (concatMap (map (fromRational . toRational))) l) (flattenReal l)
 
     , let
           dim0 = 3
@@ -511,7 +517,7 @@ main = defaultMain $
 
         shouldCompile $ do
           sa <- shapevar [2,4]
-          function "reduce" [("A",float32,sa) ] $ \[a] -> do
+          function "reduce" [("A", float32,sa) ] $ \[a] -> do
             c <- assign $ split a [1] 0
             return (c!0)
 
@@ -519,7 +525,7 @@ main = defaultMain $
 
         withTestFunction (do
           sa <- shapevar [1]
-          function "difftest" [("A",float32,sa) ] $ \[a] -> do
+          function "difftest" [("A", float32,sa) ] $ \[a] -> do
             c <- compute sa $ \i -> (a![i])*(a![i])
             dc <- assign $ differentiate c [a]
             return (dc!0)
@@ -530,5 +536,35 @@ main = defaultMain $
             callTensorFunction c func [a]
             c_ <- peekTensor c
             assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
+
+    , testModelProperty "BroadcastTo should work" (do
+        function "reduce" [("A", float32, shp [3]) ] $ \[a] -> do
+          c <- assign $ broadcast_to a (shp [1,1,3])
+          return c
+        )
+        (do
+          a <- genFixedList1 @Float 3
+          return ([toTD a], toTD [[a]])
+        )
+
+    {- FIXME: implement more sophisticated test -}
+    , testModelProperty "Flatten should work" (do
+        function "f" [("a", float32, shp [2,4])] $ \[a] -> do
+          c <- assign $ flatten a
+          return c
+        )
+        (do
+          a <- genFixedList2 @Float 2 4
+          return ([toTD a], toTD a)
+        )
+
+    {- FIXME: test real matmul and bias additionn -}
+    , testCase "Dense should work" $ do
+        shouldCompile $ do
+          function "f" [("x", float32, shp [4,4])
+                       ,("w", float32, shp [4,4])
+                       ,("b", float32, shp [4])] $ \[x,w,b] -> do
+            c <- assign $ dense x w b
+            return c
     ]
 

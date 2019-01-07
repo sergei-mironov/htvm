@@ -109,6 +109,9 @@ printTenFuncName fn =
     TenElemwise x -> "topi::"<>x
     TenSplit -> "topi::split"
     TenDifferentiate -> "htvm_differentiate"
+    TenBroadcastTo -> "topi::broadcast_to"
+    TenFlatten -> "topi::nn::flatten"
+    TenDense -> "topi::nn::dense"
 
 printLayout :: Layout -> Text
 printLayout l =
@@ -130,6 +133,7 @@ printTenExpr te =
         IntArg i -> tshow i
         IntsArg is -> "{" <> (Text.intercalate "," (map tshow is)) <> "}"
         LayoutArg l -> printLayout l
+        ShapeArg se -> printShapeExpr se
   in
   case te of
     TenPlh (n,ty,s) -> "tvm::placeholder(" <> printShapeExpr s <> "," <> printType ty <> ",\""<>n<>"\")"
@@ -192,6 +196,8 @@ printIncludes = do
     line $ "#include <tvm/build_module.h>"
     line $ "#include <topi/broadcast.h>"
     line $ "#include <topi/nn.h>"
+    line $ "#include <topi/nn/flatten.h>"
+    line $ "#include <topi/nn/dense.h>"
     line $ "#include <topi/elemwise.h>"
     line $ "#include <topi/transform.h>"
     line $ "#include <tvm/autodiff.h>"
@@ -222,7 +228,7 @@ printIncludes = do
     line $ ""
 
 
-printModuleGen :: Module -> ModuleGenSrc
+printModuleGen :: Module -> (ModuleGenSrc Module)
 printModuleGen mod =
   ModuleGenSrc mod $ execWriter $ do
     printIncludes

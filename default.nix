@@ -36,7 +36,7 @@ let
       mnist-idx
     ];
 
-    executableToolDepends = [ pkgs.clang_6 haskellPackages.c2hs ];
+    executableToolDepends = [ pkgs.clang_6 haskellPackages.c2hs pkgs.gnuplot ];
 
     license = stdenv.lib.licenses.gpl3;
 

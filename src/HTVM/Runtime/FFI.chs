@@ -126,7 +126,7 @@ instance TensorDataTypeRepr Double where tensorDataType = TD_Float64L1
 tensorDataTypeSize :: TensorDataType -> Integer
 tensorDataTypeSize = (`div`8) . tvmBits . toTvmDataType
 
--- | Flattern Tensor is a container which stores its elements in 1D-array
+-- | Flatten Tensor is a container which stores its elements in 1D-array
 data TensorData = TensorData {
     td_shape :: [Integer]
   , td_type :: TensorDataType

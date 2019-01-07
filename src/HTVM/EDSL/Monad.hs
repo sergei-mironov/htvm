@@ -129,30 +129,6 @@ data Function = Function { funcName :: Text, unFunction :: TenExpr }
 data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
--- | ModuleGenSrc is a C++ sources Module generator
-data ModuleGenSrc = ModuleGenSrc { mgen_mod :: Module, mgen_src :: Text }
-  deriving(Show,Read,Eq,Ord)
-
--- | Represents C++ sources arbitrary program
-data ProgramSrc = ProgramSrc { prog_src :: Text }
-  deriving(Show,Read,Eq,Ord)
-
--- | Represent path to arbitrary program's binary
-data ProgramBin = ProgramBin FilePath
-  deriving(Show,Read,Eq,Ord)
-
--- | Represent path to Module generator binary
-data ModuleGen = ModuleGen FilePath Module
-  deriving(Show,Read,Eq,Ord)
-
--- | LLVM Assembly produced by Module generator, along with source Module
-data Assembly = Assembly Module String
-  deriving(Show,Read,Eq,Ord)
-
--- | Path to compiled Module along with its source expression
-data ModuleLib = ModuleLib FilePath Module
-  deriving(Show,Read,Eq,Ord)
-
 -- | Define a module function. Accepts its name @n@, Placeholder definitions
 -- @plh@ which become a type of arguments and a lambda function @fbody@ defining
 -- the body.  List passed to @fbody@ would have same length as @plh@.
@@ -219,9 +195,12 @@ dimvar = do
   assign_ (PVar nm) (TenDim (DimCtr $ n_get nm))
   return (DimId nm)
 
+shp :: [DimExpr] -> ShapeExpr
+shp de = foldr1 ShapeSum (map ShapeVector de)
+
 shapevar :: (Monad m) => [DimExpr] -> StmtT m ShapeExpr
 shapevar de = do
-  n <- assignN PShape "shape" (TenShape (foldr1 ShapeSum (map ShapeVector de)))
+  n <- assignN PShape "shape" (TenShape (shp de))
   return (ShapeTen n)
 
 -- | FIXME: Module returned is only valid in the context of StmtT monad's state.
@@ -367,11 +346,20 @@ pad (Tensor x) PadArgs{..} =
 matmul :: Tensor -> Tensor -> Tensor
 matmul (Tensor a) (Tensor b) = Tensor $ TenCall TenMatMul [TenArg a, TenArg b]
 
+dense :: Tensor -> Tensor -> Tensor -> Tensor
+dense (Tensor x) (Tensor w) (Tensor b) = Tensor $ TenCall TenDense [TenArg x, TenArg w, TenArg b]
+
+broadcast_to :: Tensor -> ShapeExpr -> Tensor
+broadcast_to (Tensor a) se = Tensor $ TenCall TenBroadcastTo [TenArg a, ShapeArg se]
+
 sigmoid :: Tensor -> Tensor
 sigmoid = elemwise1 "sigmoid"
 
 relu :: Tensor -> Tensor
 relu = elemwise1 "relu"
+
+flatten :: Tensor -> Tensor
+flatten (Tensor a) = Tensor $ TenCall TenFlatten [TenArg a]
 
 split :: Tensor -> [Integer] -> Integer -> Tuple
 split (Tensor a) indices axis = Tuple $ TenCall TenSplit [TenArg a, IntsArg indices, IntArg axis]

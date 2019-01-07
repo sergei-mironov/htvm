@@ -157,9 +157,9 @@ tvmDataShape = tvmIShape
 tvmDataNDim :: (TVMData d) => d -> Integer
 tvmDataNDim = ilength . tvmDataShape
 
--- | Flatterns any `TensorLike d` into list of doubles.
-flatternReal :: (TVMData d) => d -> [Double]
-flatternReal d =
+-- | Flattens any `TensorLike d` into list of doubles.
+flattenReal :: (TVMData d) => d -> [Double]
+flattenReal d =
   let
     td = toTD d
     sh1 = [foldr1 (*) (if null $ td_shape td then [1] else td_shape td)]
@@ -232,7 +232,7 @@ newTensor d dt did = do
     tvmPoke d (unsafeTvmTensorData ft)
   return ft
 
--- | Transfer data from TVMTensor to TVMData instance
+-- | Transfer data from TVM tensor object to Haskell data container
 peekTensor :: forall d . (TVMData d)
   => TVMTensor -> IO d
 peekTensor ft = do
