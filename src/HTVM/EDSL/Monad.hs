@@ -96,6 +96,14 @@ stageModuleT s = stage <$> runStmtT initStmtCtx s where
 stageModule :: StmtT Identity Module -> Module
 stageModule = runIdentity . stageModuleT
 
+-- | Returned module contains all its definitions.
+stageLModuleT :: (Monad m) => StmtT m LModule -> m LModule
+stageLModuleT s = stage <$> runStmtT initStmtCtx s where
+  stage (LModule funcs te,StmtCtx{..}) = LModule funcs (sc_expr te)
+
+stageLModule :: StmtT Identity LModule -> LModule
+stageLModule = runIdentity . stageLModuleT
+
 data Tensor = Tensor TenExpr
   deriving(Show,Read,Eq,Ord)
 
@@ -122,12 +130,20 @@ assign a = fromTenExpr <$> assignN (toPattern @a) "asgn" (toTenExpr a)
 -- | Function represents TVM expression which is a valid `Module`-function definition
 -- Note that Module-functions ate not first-class objects in TVM (TODO: check
 -- that fact).
+-- TODO: Isn't it too complex? Should replace it with 1-to-1 LoweredFunc wrapper
 data Function = Function { funcName :: Text, unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
 -- | Module contains a valid module expression and a set of module functions
 data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
+
+-- FIXME: return from placeholders
+data Plh = Plh TenExpr
+  deriving(Read,Show,Eq,Ord)
+
+placeholder :: Text -> Type -> ShapeExpr -> Tensor
+placeholder nm tp shp = Tensor $ TenPlh (nm,tp,shp)
 
 -- | Define a module function. Accepts its name @n@, Placeholder definitions
 -- @plh@ which become a type of arguments and a lambda function @fbody@ defining
@@ -142,6 +158,19 @@ function n plh fbody = do
         res <- assignN PTenTuple "res" (TenTuple (plhs <> [bres]))
         modify $ \s -> s{sc_expr = \te -> TenDef n ((sc_expr s) te)}
         return res
+
+data LoweredFunc = LoweredFunc { lfuncName :: Text, lfuncExpr :: TenExpr }
+  deriving(Read,Show,Eq,Ord)
+
+
+instance TensorLike LoweredFunc where toTenExpr (LoweredFunc _ s) = s; fromTenExpr = LoweredFunc "<?>"; toPattern = PLoweredFunc
+
+data LModule = LModule { lmodFuncs :: [LoweredFunc], lmodExpr :: TenExpr }
+  deriving(Read,Show,Eq,Ord)
+
+lower :: Text -> Schedule -> [Tensor] -> LoweredFunc
+lower fname (Schedule s) plh =
+  LoweredFunc fname $ TenSlice (TenCall TenLower [TenArg s, TenArg $ TenTuple [t|Tensor t<-plh], StrArg fname]) 0
 
 data Tuple = Tuple TenExpr
   deriving(Show,Read,Eq,Ord)
@@ -209,6 +238,11 @@ modul :: (Monad m) => [Function] -> StmtT m Module
 modul fns = do
   n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))
   return $ Module fns n
+
+lmodul :: (Monad m) => [LoweredFunc] -> StmtT m LModule
+lmodul lfns = do
+  n <- assignN PFuncTuple "lmod" (TenTuple (map lfuncExpr lfns))
+  return $ LModule lfns n
 
 -- | FIXME: Convertion from TenExpr to Expr looks weitd. Rethink returning
 -- expression from statement monad

@@ -37,6 +37,13 @@ buildModule cc fp m = do
     asm <- runModuleGen mgen
     compileModule fp asm
 
+buildLModule :: CompileConfig -> FilePath -> LModule -> IO (ModuleLib LModule)
+buildLModule cc fp m = do
+  withTmpf "mgen" $ \fpath -> do
+    mgen <- compileModuleGen cc fpath (printLModuleGen m)
+    asm <- runModuleGen mgen
+    compileModule fp asm
+
 stageBuildModule :: (MonadIO m) => CompileConfig -> FilePath -> StmtT m Module -> m (ModuleLib Module)
 stageBuildModule cc fp m = stageModuleT m >>= liftIO . buildModule cc fp
 

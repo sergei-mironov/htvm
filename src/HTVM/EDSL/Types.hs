@@ -100,6 +100,7 @@ data Pattern =
   | PFuncTuple Name
   | PSchedule Name
   | PStage Name
+  | PLoweredFunc Name
   deriving(Show,Read,Ord,Eq)
 
 -- | A registry of tensor-level function names
@@ -118,6 +119,7 @@ data TenFuncName =
   | TenBroadcastTo
   | TenFlatten
   | TenDense
+  | TenLower
   deriving(Show,Read,Ord,Eq)
 
 -- | Kinds of arguments received by `TenCall`

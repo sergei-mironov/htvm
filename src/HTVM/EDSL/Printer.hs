@@ -84,9 +84,10 @@ printPattern p =
     PFunc n -> "tvm::LoweredFunc " <> printName n
     PAxis n -> "tvm::Array<tvm::Var> " <> printName n
     PTenTuple n -> "tvm::Array<tvm::Tensor> " <> printName n
-    PFuncTuple n -> "tvm::Array<tvm::LoweredFunc> " <> printName n
+    PFuncTuple n -> "tvm::Array<tvm::LoweredFunc> " <> printName n -- FIXME: Deprecated?
     PSchedule n -> "tvm::Schedule " <> printName n
     PStage n -> "tvm::Stage " <> printName n
+    PLoweredFunc n -> "tvm::LoweredFunc " <> printName n
 
 printType :: Type -> Text
 printType t =
@@ -112,6 +113,7 @@ printTenFuncName fn =
     TenBroadcastTo -> "topi::broadcast_to"
     TenFlatten -> "topi::nn::flatten"
     TenDense -> "topi::nn::dense"
+    TenLower -> "tvm::lower"
 
 printLayout :: Layout -> Text
 printLayout l =
@@ -125,15 +127,6 @@ printTenExpr te =
   let
     go = printTenExpr
 
-    parg arg =
-      case arg of
-        TenArg e -> go e
-        StrArg str -> "\"" <> str <> "\""
-        TypeArg t -> printType t
-        IntArg i -> tshow i
-        IntsArg is -> "{" <> (Text.intercalate "," (map tshow is)) <> "}"
-        LayoutArg l -> printLayout l
-        ShapeArg se -> printShapeExpr se
   in
   case te of
     TenPlh (n,ty,s) -> "tvm::placeholder(" <> printShapeExpr s <> "," <> printType ty <> ",\""<>n<>"\")"
@@ -160,11 +153,30 @@ printTenExpr te =
         line $ "lowered[0];"
         line $ "})"
     TenCall nm es ->
+      let
+        parg arg =
+          case arg of
+            TenArg e -> go e
+            StrArg str -> "\"" <> str <> "\""
+            TypeArg t -> printType t
+            IntArg i -> tshow i
+            IntsArg is -> "{" <> (Text.intercalate "," (map tshow is)) <> "}"
+            LayoutArg l -> printLayout l
+            ShapeArg se -> printShapeExpr se
+
+        call args = printTenFuncName nm <> "(" <> Text.intercalate ", " args <> ")"
+      in
       case nm of
         TenOp _
           | (length es == 2) -> parg (es!!0) <> printTenFuncName nm <> parg (es!!1)
           | (length es == 1) -> printTenFuncName nm <> parg (es!!0)
-        _ -> printTenFuncName nm <> "(" <> Text.intercalate ", " (map parg es) <> ")" -- FIXME: attrs?
+        TenLower ->
+          call ((map parg es) <> [
+              "std::unordered_map<tvm::Tensor, tvm::Buffer>()" -- binds
+            , "tvm::build_config()"                            -- config
+            ])
+        _ ->
+          call (map parg es)
 
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")
@@ -172,6 +184,18 @@ line x = tell (x <> "\n")
 
 printModule:: Module -> Text
 printModule (Module _ te) =
+  execWriter $ do
+    line $ "({"
+    line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"
+    line $ "tvm::BuildConfig config = tvm::build_config();"
+    line $ "auto target = tvm::Target::create(\"llvm\"); "
+    line $ "auto target_host = tvm::Target::create(\"llvm\");"
+    line $ "tvm::runtime::Module mod = tvm::build(funcs, target, target_host, config);"
+    line $ "mod;"
+    line $ "})"
+
+printLModule:: LModule -> Text
+printLModule (LModule _ te) =
   execWriter $ do
     line $ "({"
     line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"
@@ -226,7 +250,11 @@ printIncludes = do
     line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Array<tvm::Expr> t) { return t; }"
     line $ "tvm::Array<tvm::Tensor> htvm_differentiate(tvm::Tensor t, tvm::Array<tvm::Tensor> a){ return tvm::ir::Differentiate(t,a)->result; }"
     line $ ""
-
+    line $ "using topi::operator+;"
+    line $ "using topi::operator-;"
+    line $ "using topi::operator*;"
+    line $ "using topi::operator/;"
+    line $ "using topi::operator%;"
 
 printModuleGen :: Module -> (ModuleGenSrc Module)
 printModuleGen mod =
@@ -238,6 +266,15 @@ printModuleGen mod =
     line $ "std::cout << mod->GetSource(\"asm\") << std::endl;"
     line $ "}"
 
+printLModuleGen :: LModule -> (ModuleGenSrc LModule)
+printLModuleGen mod =
+  ModuleGenSrc mod $ execWriter $ do
+    printIncludes
+    line $ "int main()"
+    line $ "{"
+    line $ "auto mod = " <> printLModule mod <> ";"
+    line $ "std::cout << mod->GetSource(\"asm\") << std::endl;"
+    line $ "}"
 
 printPrinter :: TenExpr -> ProgramSrc
 printPrinter te =

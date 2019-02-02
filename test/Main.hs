@@ -231,6 +231,14 @@ withTestModule mf act =
           f <- mf
           modul [f]
 
+withTestLModule :: Stmt LModule -> (ModuleLib LModule -> IO b) -> IO b
+withTestLModule mf act =
+  withTmpf "htvm-test-module" $ \fp -> do
+    {- traceM $ "file: " <> fp -}
+    act =<< do
+      buildLModule defaultConfig fp $
+        stageLModule mf
+
 withSingleFuncModule :: ModuleLib Module -> (TVMFunction -> IO b) -> IO b
 withSingleFuncModule modlib handler =
   case modlib of
@@ -566,5 +574,24 @@ main = defaultMain $
                        ,("b", float32, shp [4])] $ \[x,w,b] -> do
             c <- assign $ dense x w b
             return c
+
+    {- FIXME: test real matmul and bias additionn -}
+    , testCase "Dense should work" $ do
+        shouldCompile $ do
+          function "f" [("x", float32, shp [4,4])
+                       ,("w", float32, shp [4,4])
+                       ,("b", float32, shp [4])] $ \[x,w,b] -> do
+            c <- assign $ dense x w b
+            return c
+
+    , testCase "LModule test case" $ do
+        flip withTestLModule (const $ return ()) $ do
+          a <- assign $ placeholder "A" float32 (shp [4,4])
+          b <- assign $ placeholder "B" float32 (shp [4,4])
+          c <- assign $ a + b
+
+          s <- schedule [c]
+          l <- assign $ lower "vecadd" s [a,b,c]
+          lmodul [l]
     ]
 
