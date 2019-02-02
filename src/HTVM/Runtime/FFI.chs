@@ -30,7 +30,7 @@ data TVMError =
     TVMAllocFailed Int
   | TVMFreeFailed Int
   | TVMModLoadFailed Int String
-  | TVMFuncLoadFailed Int String
+  | TVMFuncLoadFailed Int Bool {- ^ null pointer flag -} String
   | TVMFunCallFailed Int String
   | TVMFunCallBadType Int
   | TVMCopyFailed Int String
@@ -176,7 +176,10 @@ instance Storable TVMModule_Repr where
 -- | Alias for void* used as Module handle
 type TVMModuleHandle = Ptr TVMModule_Repr
 
--- | Foreign pointer to Module handle
+-- | Foreign pointer to Module handle TVM module will be
+-- deallocated automatically when the haskell runtime desides so. It is user
+-- responsibility to keep TVMModule in scope with every TVMFunction to
+-- prevent early resource cleanup.
 type TVMModule = ForeignPtr TVMModule_Repr
 
 -- | Representation of FunctionHandle
@@ -191,7 +194,8 @@ instance Storable TVMFunction_Repr where
 -- | Alias for void* used as Function handle
 type TVMFunctionHandle = Ptr TVMFunction_Repr
 
--- | Foreign pointer to function handle
+-- | Foreign pointer to function handle. TVM function will be
+-- deallocated automatically when the haskell runtime desides so.
 type TVMFunction = ForeignPtr TVMFunction_Repr
 
 
@@ -352,9 +356,10 @@ loadModule modname = do
   withCString modname $ \cmodname -> do
   withCString "so" $ \so -> do
     r <- tvmModLoadFromFile cmodname so pmod
-    case r of
-      0 -> peek pmod >>= newForeignPtr tvmModFree_
-      err -> throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
+    pm <- peek pmod
+    case (r, pm == nullPtr) of
+      (0,False) -> peek pmod >>= newForeignPtr tvmModFree_
+      (err,b) -> throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
 
 -- | Load module from dynamic library @modname@ and process it with a callback @func@
 -- Module will be freed on return from @func@
@@ -364,13 +369,14 @@ withModule modname func =
   withCString modname $ \cmodname -> do
   withCString "so" $ \so -> do
     r <- tvmModLoadFromFile cmodname so pmod
-    case r of
-      0 -> do
+    pm <- peek pmod
+    case (r,pm == nullPtr) of
+      (0,False) -> do
         m <- peek pmod
         b <- func =<< (newForeignPtr_ m)
         tvmModFree m
         return b
-      err -> do
+      (err,b) -> do
         throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
 
 -- | Load function named @funcname@ from module @mod@. Function will be
@@ -381,9 +387,10 @@ loadFunction funcname mod = do
   withCString (tunpack funcname) $ \cfuncname -> do
   withForeignPtr mod $ \hmod -> do
     r <- tvmModGetFunction hmod cfuncname 0 pfunc
-    case r of
-      0 -> peek pfunc >>= newForeignPtr tvmFuncFree_
-      err -> throwIO =<< (TVMFuncLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
+    pf <- peek pfunc
+    case (r,pf == nullPtr) of
+      (0,False) -> peek pfunc >>= newForeignPtr tvmFuncFree_
+      (err,nullf) -> throwIO =<< (TVMFuncLoadFailed <$> pure (fromCInt err) <*> pure nullf <*> tvmGetLastError)
 
 -- | Load the function named @funcname@ from module @mod@, use it in callback @func@
 -- Function will be freed on return from @func@
@@ -393,15 +400,16 @@ withFunction funcname mod func =
   withCString (tunpack funcname) $ \cfuncname -> do
   withForeignPtr mod $ \hmod -> do
     r <- tvmModGetFunction hmod cfuncname 0 pfunc
-    case r of
-      0 -> do
+    pf <- peek pfunc
+    case (r,pf == nullPtr) of
+      (0,False) -> do
         f <- peek pfunc
         b <- func =<< (newForeignPtr_ f)
         tvmFuncFree f
         return b
-      err -> do
+      (err,nullf) -> do
         str <- tvmGetLastError
-        throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) str)
+        throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) nullf str)
 
 -- | Call function @fun@ returning @ret@ with @args@
 --
