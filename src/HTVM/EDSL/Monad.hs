@@ -3,6 +3,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -40,14 +41,20 @@ runExprT e = flip runStateT initExprCtx $ unExprT e
 stageExpr :: (Monad m) => ExprT m Expr -> m Expr
 stageExpr e = fst <$> runExprT e
 
-
+-- | Monadic context of the tensor expression builder monad
 data StmtCtx = StmtCtx {
     sc_gen :: Integer
+  -- ^ Name generator counter
   , sc_expr :: TenExpr -> TenExpr
+  -- ^ Expression which is being build
+  -- TODO: Implement dictionary containing schedulings for tensors
   }
 
+-- | Initial context for tensor expression builder monad
 initStmtCtx = StmtCtx 0 id
 
+-- | Monad transformer for building `TenExpr`.
+-- FIXME: Name `StmtT` is somewhat misleading.
 newtype StmtT m a = StmtT { unStmtT :: StateT StmtCtx m a }
   deriving(Functor,Applicative,Monad,MonadTrans,MonadState StmtCtx,MonadIO)
 
@@ -56,16 +63,19 @@ type Stmt a = StmtT Identity a
 name :: (Monad m) => Text -> m Name
 name = return . Name
 
+-- | Produce unique name in the current context, optionally preffixed or
+-- suffixed
 fresh' :: (Monad m) => Text -> Text -> StmtT m Name
 fresh' pref suff = StmtT $ state $ \s@StmtCtx{..} -> (Name $ wrap pref <> tshow sc_gen <> wrap suff, s{sc_gen = sc_gen+1})
   where
     wrap x = if x == "" then x else x <> "_"
 
--- | Generate new preffixed and suffixed names
+-- | Generate new preffixed and suffixed unique name
 freshP,freshS :: (Monad m) => Text -> StmtT m Name
 freshP p = fresh' p ""
 freshS s = fresh' "" s
 
+-- | Produce unique name in the current context
 fresh :: (Monad m) => StmtT m Name
 fresh = fresh' "" ""
 
@@ -82,24 +92,28 @@ scope m = do
 
 stageTenExpr :: (Monad m) => StmtT m TenExpr -> m TenExpr
 stageTenExpr s = stage <$> runStmtT initStmtCtx s where
-  stage (te,StmtCtx{..}) = sc_expr te
+  stage (te,StmtCtx{sc_expr}) = sc_expr te
 
 stageFunctionT :: (Monad m) => StmtT m Function -> m Function
 stageFunctionT fe = stage <$> runStmtT initStmtCtx fe where
-  stage (Function n te,StmtCtx{..}) = Function n (sc_expr te)
+  stage (Function n te,StmtCtx{sc_expr}) = Function n (sc_expr te)
 
 -- | Returned module contains all its definitions.
 stageModuleT :: (Monad m) => StmtT m Module -> m Module
 stageModuleT s = stage <$> runStmtT initStmtCtx s where
-  stage (Module funcs te,StmtCtx{..}) = Module funcs (sc_expr te)
+  stage (Module funcs te,StmtCtx{sc_expr}) = Module funcs (sc_expr te)
 
 stageModule :: StmtT Identity Module -> Module
 stageModule = runIdentity . stageModuleT
 
+stageLFunctionT :: (Monad m) => StmtT m LoweredFunc -> m LoweredFunc
+stageLFunctionT fe = stage <$> runStmtT initStmtCtx fe where
+  stage (LoweredFunc n te,StmtCtx{sc_expr}) = LoweredFunc n (sc_expr te)
+
 -- | Returned module contains all its definitions.
 stageLModuleT :: (Monad m) => StmtT m LModule -> m LModule
 stageLModuleT s = stage <$> runStmtT initStmtCtx s where
-  stage (LModule funcs te,StmtCtx{..}) = LModule funcs (sc_expr te)
+  stage (LModule funcs te,StmtCtx{sc_expr}) = LModule funcs (sc_expr te)
 
 stageLModule :: StmtT Identity LModule -> LModule
 stageLModule = runIdentity . stageLModuleT
@@ -138,6 +152,9 @@ data Function = Function { funcName :: Text, unFunction :: TenExpr }
 data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
+module2LModule :: Module -> LModule
+module2LModule (Module fns te) = LModule (map funcName fns) te
+
 -- FIXME: return from placeholders
 data Plh = Plh TenExpr
   deriving(Read,Show,Eq,Ord)
@@ -159,18 +176,24 @@ function n plh fbody = do
         modify $ \s -> s{sc_expr = \te -> TenDef n ((sc_expr s) te)}
         return res
 
+lfunction :: (Monad m) => Text -> [Placeholder] -> ([Tensor] -> StmtT m Tensor) -> StmtT m LoweredFunc
+lfunction nam plhs fbody = do
+  ts <- mapM (\(n,t,s) -> assign $ placeholder n t s) plhs
+  res <- fbody ts
+  s <- assign $ schedule [res]
+  lower nam s (ts<>[res])
+
 data LoweredFunc = LoweredFunc { lfuncName :: Text, lfuncExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
-
-instance TensorLike LoweredFunc where toTenExpr (LoweredFunc _ s) = s; fromTenExpr = LoweredFunc "<?>"; toPattern = PLoweredFunc
-
-data LModule = LModule { lmodFuncs :: [LoweredFunc], lmodExpr :: TenExpr }
+data LModule = LModule { lmodFuncNames :: [Text], lmodExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
-lower :: Text -> Schedule -> [Tensor] -> LoweredFunc
-lower fname (Schedule s) plh =
-  LoweredFunc fname $ TenSlice (TenCall TenLower [TenArg s, TenArg $ TenTuple [t|Tensor t<-plh], StrArg fname]) 0
+lower :: (Monad m) => Text -> Schedule -> [Tensor] -> StmtT m LoweredFunc
+lower fname (Schedule s) plh = do
+  LoweredFunc fname <$> do
+    assignN PLoweredFunc "lf" $ lfuncExpr $
+      LoweredFunc fname $ TenSlice (TenCall TenLower [TenArg s, TenArg $ TenTuple [t|Tensor t<-plh], StrArg fname]) 0
 
 data Tuple = Tuple TenExpr
   deriving(Show,Read,Eq,Ord)
@@ -242,7 +265,7 @@ modul fns = do
 lmodul :: (Monad m) => [LoweredFunc] -> StmtT m LModule
 lmodul lfns = do
   n <- assignN PFuncTuple "lmod" (TenTuple (map lfuncExpr lfns))
-  return $ LModule lfns n
+  return $ LModule (map lfuncName lfns) n
 
 -- | FIXME: Convertion from TenExpr to Expr looks weitd. Rethink returning
 -- expression from statement monad
@@ -423,8 +446,8 @@ data Schedule = Schedule TenExpr
 
 instance TensorLike Schedule where toTenExpr (Schedule s) = s; fromTenExpr = Schedule; toPattern = PSchedule
 
-schedule :: (Monad m) => [Tensor] -> StmtT m Schedule
-schedule ts = Schedule <$> assignN PSchedule "sched" (TenCall TenSchedule [TenArg $ TenTuple [t|Tensor t<-ts]])
+schedule :: [Tensor] -> Schedule
+schedule ts = Schedule (TenCall TenSchedule [TenArg $ TenTuple [t|Tensor t<-ts]])
 
 parallel :: (Monad m) => Schedule -> Tensor -> IterVar -> StmtT m ()
 parallel (Schedule s) (Tensor t) (IterVar a) =

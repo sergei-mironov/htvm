@@ -34,6 +34,7 @@ let
       temporary
       directory
       mnist-idx
+      deepseq
     ];
 
     executableToolDepends = [ pkgs.clang_6 haskellPackages.c2hs pkgs.gnuplot ];

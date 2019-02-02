@@ -35,6 +35,7 @@ library
     , directory
     , temporary
     , vector
+    , deepseq
   hs-source-dirs:
     src
   default-language:

@@ -29,6 +29,7 @@ import Foreign (Storable(..))
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.IO.Temp (withTempFile)
 import System.IO (Handle, hClose, openTempFile, openBinaryTempFile)
+import Foreign (touchForeignPtr)
 import Prelude
 
 import qualified Control.Monad.Catch as MC
@@ -218,7 +219,30 @@ testModelProperty desc mf gens =
   (\act -> do
     testProperty desc $ do
       monadicIO $ do
-        run act >>= flip modelProperty gens
+        run act >>= \(ModuleLib fp mod) -> flip lmodelProperty gens (ModuleLib fp (module2LModule mod))
+  )
+
+testLModelProperty :: String
+                   -> Stmt LoweredFunc
+                   -> Gen ([TensorData], TensorData)
+                   -> TestTree
+testLModelProperty desc mf gens =
+  withResource (do
+    tmpDir <- getTemporaryDirectory
+    (nm,h) <- openTempFile tmpDir "htvm-test-module"
+    hClose h
+    buildLModule defaultConfig nm $
+      stageLModule $ do
+        f <- mf
+        lmodul [f]
+  )
+  (\(ModuleLib nm _) -> do
+    ignoringIOErrors (removeFile nm)
+  )
+  (\act -> do
+    testProperty desc $ do
+      monadicIO $ do
+        run act >>= flip lmodelProperty gens
   )
 
 withTestModule :: Stmt Function -> (ModuleLib Module -> IO b) -> IO b
@@ -248,6 +272,15 @@ withSingleFuncModule modlib handler =
         handler hfun
     _ -> fail "withSingleFuncModule expects module with single function"
 
+withSingleFuncLModule :: ModuleLib LModule -> (TVMFunction -> IO b) -> IO b
+withSingleFuncLModule modlib handler =
+  case modlib of
+    (ModuleLib modpath (LModule [nm] _)) ->
+      withModule modpath $ \hmod ->
+      withFunction nm hmod $ \hfun ->
+        handler hfun
+    _ -> fail "withSingleFuncLModule expects module with single function"
+
 singleFuncModule :: ModuleLib Module -> IO TVMFunction
 singleFuncModule modlib =
   case modlib of
@@ -257,11 +290,27 @@ singleFuncModule modlib =
       return f
     _ -> fail "withSingleFuncModule expects module with single function"
 
+-- | FIXME: Protect modulePtr from cleanup
+singleFuncLModule :: ModuleLib LModule -> IO TVMFunction
+singleFuncLModule modlib =
+  case modlib of
+    (ModuleLib modpath (LModule [nm] _)) -> do
+      m <- loadModule modpath
+      f <- loadFunction nm m
+      return f
+    _ -> fail "withSingleFuncModule expects module with single function"
+
 withTestFunction :: Stmt Function -> (TVMFunction -> IO b) -> IO b
 withTestFunction mf handler = withTestModule mf $ flip withSingleFuncModule handler
 
+withTestLFunction :: Stmt LoweredFunc -> (TVMFunction -> IO b) -> IO b
+withTestLFunction mf handler = withTestLModule (lmodul . (\x->[x]) =<< mf) $ flip withSingleFuncLModule handler
+
 shouldCompile :: Stmt Function -> IO ()
 shouldCompile = flip withTestFunction (const $ return ())
+
+shouldLCompile :: Stmt LoweredFunc -> IO ()
+shouldLCompile = flip withTestLFunction (const $ return ())
 
 modelProperty :: ModuleLib Module -> Gen ([TensorData],TensorData) -> PropertyM IO ()
 modelProperty modlib gen = do
@@ -273,6 +322,16 @@ modelProperty modlib gen = do
     (actual :: TensorData) <- run $ peekTensor tact
     assert $ (epsilonEqual epsilon actual expected)
 
+lmodelProperty :: ModuleLib LModule -> Gen ([TensorData],TensorData) -> PropertyM IO ()
+lmodelProperty modlib gen = do
+  func <- run $ singleFuncLModule modlib
+  forAllM gen $ \(args,expected) -> do
+    tact <- run $ newEmptyTensor (toTvmDataType $ tensorDataType @Float) (tvmIShape expected) KDLCPU 0
+    targs <- forM args $ \t -> run $ newTensor t KDLCPU 0
+    -- run $ traceM "READY TO CALL"
+    run $ callTensorFunction tact func targs
+    (actual :: TensorData) <- run $ peekTensor tact
+    assert $ (epsilonEqual epsilon actual expected)
 
 {-
 testFunction :: forall d1 i1 e1 d2 i2 e2 . (TVMData d1 i1 e1, TVMData d2 i2 e2) =>
@@ -399,9 +458,9 @@ main = defaultMain $
     , let
           dim0 = 3
       in
-      testModelProperty "Simple model should work (QC)" (do
+      testLModelProperty "Simple model should work (QC)" (do
           s <- shapevar [fromInteger dim0]
-          function "a" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+          lfunction "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
             compute s $ \e -> a![e] + b![e]
           )
           (do
@@ -423,10 +482,10 @@ main = defaultMain $
     , testCase "Function printer should work" $
         do
         dump <-
-          printFunction defaultConfig =<< do
-            stageFunctionT $ do
+          printLFunctionIR defaultConfig =<< do
+            stageLFunctionT $ do
               s <- shapevar [10]
-              function "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+              lfunction "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
                 compute s $ \e -> a![e] + b![e]
         assertBool "dump should contain 'produce' keyword" $ isInfixOf "produce" dump
 
@@ -435,10 +494,11 @@ main = defaultMain $
           dim0 = 4 :: Integer
           fname = "vecadd"
         in do
-        withTestModule (do
+        withTestLModule (do
           s <- shapevar [fromInteger dim0]
-          function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-            compute s $ \e -> a![e] + b![e]
+          lmodul . (\x->[x]) =<< do
+            lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+              compute s $ \e -> a![e] + b![e]
           ) $
           \(ModuleLib p _) -> do
             withModule p $ \hmod -> do
@@ -454,10 +514,11 @@ main = defaultMain $
           dim0 = 4 :: Integer
           fname = "vecadd"
         in do
-        withTestModule (do
+        withTestLModule (do
           s <- shapevar [fromInteger dim0]
-          function fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-            compute s $ \e -> a![e] + b![e]
+          lmodul . (\x->[x]) =<< do
+            lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+              compute s $ \e -> a![e] + b![e]
           ) $
           \(ModuleLib mod_path _) -> do
             m <- loadModule mod_path
@@ -470,43 +531,43 @@ main = defaultMain $
 
     , testCase "Reduce axis operation should compile" $
 
-        shouldCompile $ do
+        shouldLCompile $ do
           s <- shapevar [4]
-          function "reduce" [("A",float32,s)] $ \[a] -> do
+          lfunction "reduce" [("A",float32,s)] $ \[a] -> do
             IterVar r <- reduce_axis (0,3)
             compute ShapeScalar $ \(_::Expr) -> esum (a![r], [r])
 
     , testCase "Conv2d operation should compile" $
 
-        shouldCompile $ do
+        shouldLCompile $ do
           sa <- shapevar [1,1,10,10]
           sk <- shapevar [1,1,3,3]
-          function "reduce" [("A",float32,sa), ("k",float32,sk)] $ \[a,k] -> do
+          lfunction "reduce" [("A",float32,sa), ("k",float32,sk)] $ \[a,k] -> do
             return $ conv2d_nchw a k def
 
     , testCase "Pad operation should compile" $
 
-        shouldCompile $ do
+        shouldLCompile $ do
           sa <- shapevar [1,1,10,10]
-          function "reduce" [("A",float32,sa) ] $ \[a] -> do
+          lfunction "reduce" [("A",float32,sa) ] $ \[a] -> do
             return $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
 
     , testCase "Parallel schedule should compile" $
 
-        shouldCompile $ do
+        shouldLCompile $ do
           sa <- shapevar [1,1,10,10]
-          function "reduce" [("A",float32,sa) ] $ \[a] -> do
+          lfunction "reduce" [("A",float32,sa) ] $ \[a] -> do
             c <- assign $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
             r <- axisId c 0
-            s <- schedule [c]
+            s <- assign $ schedule [c]
             parallel s c r
             return c
 
     , testCase "Sigmoid primitive should work" $
 
-        withTestFunction (do
+        withTestLFunction (do
           s <- shapevar [4]
-          function "sigmoid" [("A",float32,s)] $ \[a] -> do
+          lfunction "sigmoid" [("A",float32,s)] $ \[a] -> do
             c <- assign $ sigmoid a
             return c
           ) $
@@ -523,17 +584,17 @@ main = defaultMain $
 
     , testCase "Split primitive should compile" $
 
-        shouldCompile $ do
+        shouldLCompile $ do
           sa <- shapevar [2,4]
-          function "reduce" [("A", float32,sa) ] $ \[a] -> do
+          lfunction "reduce" [("A", float32,sa) ] $ \[a] -> do
             c <- assign $ split a [1] 0
             return (c!0)
 
     , testCase "Differentiate should work" $
 
-        withTestFunction (do
+        withTestLFunction (do
           sa <- shapevar [1]
-          function "difftest" [("A", float32,sa) ] $ \[a] -> do
+          lfunction "difftest" [("A", float32,sa) ] $ \[a] -> do
             c <- compute sa $ \i -> (a![i])*(a![i])
             dc <- assign $ differentiate c [a]
             return (dc!0)
@@ -545,8 +606,9 @@ main = defaultMain $
             c_ <- peekTensor c
             assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
 
-    , testModelProperty "BroadcastTo should work" (do
-        function "reduce" [("A", float32, shp [3]) ] $ \[a] -> do
+
+    , testLModelProperty "BroadcastTo should work" (do
+        lfunction "reduce" [("A", float32, shp [3]) ] $ \[a] -> do
           c <- assign $ broadcast_to a (shp [1,1,3])
           return c
         )
@@ -556,8 +618,8 @@ main = defaultMain $
         )
 
     {- FIXME: implement more sophisticated test -}
-    , testModelProperty "Flatten should work" (do
-        function "f" [("a", float32, shp [2,4])] $ \[a] -> do
+    , testLModelProperty "Flatten should work" (do
+        lfunction "f" [("a", float32, shp [2,4])] $ \[a] -> do
           c <- assign $ flatten a
           return c
         )
@@ -568,17 +630,8 @@ main = defaultMain $
 
     {- FIXME: test real matmul and bias additionn -}
     , testCase "Dense should work" $ do
-        shouldCompile $ do
-          function "f" [("x", float32, shp [4,4])
-                       ,("w", float32, shp [4,4])
-                       ,("b", float32, shp [4])] $ \[x,w,b] -> do
-            c <- assign $ dense x w b
-            return c
-
-    {- FIXME: test real matmul and bias additionn -}
-    , testCase "Dense should work" $ do
-        shouldCompile $ do
-          function "f" [("x", float32, shp [4,4])
+        shouldLCompile $ do
+          lfunction "f" [("x", float32, shp [4,4])
                        ,("w", float32, shp [4,4])
                        ,("b", float32, shp [4])] $ \[x,w,b] -> do
             c <- assign $ dense x w b
@@ -586,12 +639,10 @@ main = defaultMain $
 
     , testCase "LModule test case" $ do
         flip withTestLModule (const $ return ()) $ do
-          a <- assign $ placeholder "A" float32 (shp [4,4])
-          b <- assign $ placeholder "B" float32 (shp [4,4])
+          a <- assign $ placeholder "a" float32 (shp [4,4])
+          b <- assign $ placeholder "b" float32 (shp [4,4])
           c <- assign $ a + b
-
-          s <- schedule [c]
-          l <- assign $ lower "vecadd" s [a,b,c]
+          l <- lower "vecadd" (schedule [c]) [a,b,c]
           lmodul [l]
     ]
 

@@ -4,7 +4,7 @@ set -e
 set -x
 
 WD=./_build
-NM=htvm
+NM=lmodel
 
 mkdir $WD || true
 
@@ -21,8 +21,8 @@ $WD/gen >$WD/$NM.s 2>/dev/null
 g++ -shared -fPIC -o $WD/$NM.so $WD/$NM.s
 
 # # Compile the model loader
-# g++ -std=c++14 -DTVM_SO=\"$WD/$NM.so\" ${NM}run.cpp -ltvm -o $WD/run
+g++ -std=c++14 -DTVM_SO=\"$WD/$NM.so\" ${NM}_run.cpp -ltvm -o $WD/run
 
 # # Run the model loader
-# $WD/run
+$WD/run
 

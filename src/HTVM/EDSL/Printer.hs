@@ -126,15 +126,14 @@ printTenExpr :: TenExpr -> Text
 printTenExpr te =
   let
     go = printTenExpr
-
   in
   case te of
     TenPlh (n,ty,s) -> "tvm::placeholder(" <> printShapeExpr s <> "," <> printType ty <> ",\""<>n<>"\")"
     TenId n -> printName n
-    TenLet pat e1@(TenLet _ _ _) e2 -> printPattern pat <> " = ({" <> go e1 <> "; });\n" <> go e2
-    TenLet pat e1 e2 -> printPattern pat <> " = " <> go e1 <> ";\n" <> go e2
-    -- TenAxis (a,b) -> --error "printTenExpr: Axis (aka `tvm::IterVar`) is not implemented"
-    --               "tvm::reduce_axis({ " <> printDimExpr a <> "," <> printDimExpr b <> "})"
+    TenLet pat e1 e2 ->
+      case e1 of
+        TenLet{} -> printPattern pat <> " = ({" <> go e1 <> "; });\n" <> go e2
+        _ ->        printPattern pat <> " = " <> go e1 <> ";\n" <> go e2
     TenTuple es -> "{" <> Text.intercalate ", " (map go es) <> "}"
     TenSlice te i -> go te <> "[" <> tshow i <> "]"
     TenDim s -> printDimExpr s
