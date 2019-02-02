@@ -181,18 +181,6 @@ line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")
 
 
-printModule:: Module -> Text
-printModule (Module _ te) =
-  execWriter $ do
-    line $ "({"
-    line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"
-    line $ "tvm::BuildConfig config = tvm::build_config();"
-    line $ "auto target = tvm::Target::create(\"llvm\"); "
-    line $ "auto target_host = tvm::Target::create(\"llvm\");"
-    line $ "tvm::runtime::Module mod = tvm::build(funcs, target, target_host, config);"
-    line $ "mod;"
-    line $ "})"
-
 printLModule:: LModule -> Text
 printLModule (LModule _ te) =
   execWriter $ do
@@ -254,16 +242,6 @@ printIncludes = do
     line $ "using topi::operator*;"
     line $ "using topi::operator/;"
     line $ "using topi::operator%;"
-
-printModuleGen :: Module -> (ModuleGenSrc Module)
-printModuleGen mod =
-  ModuleGenSrc mod $ execWriter $ do
-    printIncludes
-    line $ "int main()"
-    line $ "{"
-    line $ "auto mod = " <> printModule mod <> ";"
-    line $ "std::cout << mod->GetSource(\"asm\") << std::endl;"
-    line $ "}"
 
 printLModuleGen :: LModule -> (ModuleGenSrc LModule)
 printLModuleGen mod =

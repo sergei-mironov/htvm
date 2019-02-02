@@ -180,7 +180,7 @@ type Placeholder = (Text,Type,ShapeExpr)
 data ModuleGenSrc a = ModuleGenSrc { mgen_mod :: a, mgen_src :: Text }
   deriving(Show,Read,Eq,Ord)
 
--- | Represents C++ sources arbitrary program
+-- | Represents C++ sources of arbitrary program
 data ProgramSrc = ProgramSrc { prog_src :: Text }
   deriving(Show,Read,Eq,Ord)
 
@@ -188,15 +188,17 @@ data ProgramSrc = ProgramSrc { prog_src :: Text }
 data ProgramBin = ProgramBin FilePath
   deriving(Show,Read,Eq,Ord)
 
--- | Represent path to Module generator binary
+-- | ModuleGen represents path to compiled TVM module generator binary
 data ModuleGen a = ModuleGen FilePath a
   deriving(Show,Read,Eq,Ord)
 
--- | LLVM Assembly produced by Module generator, along with source Module
+-- | LLVM Assembly produced by TVM Module generator, along with source
+-- expression
 data Assembly a = Assembly a String
   deriving(Show,Read,Eq,Ord)
 
--- | Path to compiled Module along with its source expression
+-- | Path to compiled TVM Module along with its source expression. Typically
+-- the module is contained in a shared library
 data ModuleLib a = ModuleLib FilePath a
   deriving(Show,Read,Eq,Ord)
 

@@ -199,29 +199,6 @@ assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 ignoringIOErrors :: MC.MonadCatch m => m () -> m ()
 ignoringIOErrors ioe = ioe `MC.catch` (\e -> const (return ()) (e :: IOError))
 
-testModelProperty :: String
-                  -> Stmt Function
-                  -> Gen ([TensorData], TensorData)
-                  -> TestTree
-testModelProperty desc mf gens =
-  withResource (do
-    tmpDir <- getTemporaryDirectory
-    (nm,h) <- openTempFile tmpDir "htvm-test-module"
-    hClose h
-    buildModule defaultConfig nm $
-      stageModule $ do
-        f <- mf
-        modul [f]
-  )
-  (\(ModuleLib nm _) -> do
-    ignoringIOErrors (removeFile nm)
-  )
-  (\act -> do
-    testProperty desc $ do
-      monadicIO $ do
-        run act >>= \(ModuleLib fp mod) -> flip lmodelProperty gens (ModuleLib fp (module2LModule mod))
-  )
-
 testLModelProperty :: String
                    -> Stmt LoweredFunc
                    -> Gen ([TensorData], TensorData)
@@ -245,16 +222,6 @@ testLModelProperty desc mf gens =
         run act >>= flip lmodelProperty gens
   )
 
-withTestModule :: Stmt Function -> (ModuleLib Module -> IO b) -> IO b
-withTestModule mf act =
-  withTmpf "htvm-test-module" $ \fp -> do
-    {- traceM $ "file: " <> fp -}
-    act =<< do
-      buildModule defaultConfig fp $
-        stageModule $ do
-          f <- mf
-          modul [f]
-
 withTestLModule :: Stmt LModule -> (ModuleLib LModule -> IO b) -> IO b
 withTestLModule mf act =
   withTmpf "htvm-test-module" $ \fp -> do
@@ -262,15 +229,6 @@ withTestLModule mf act =
     act =<< do
       buildLModule defaultConfig fp $
         stageLModule mf
-
-withSingleFuncModule :: ModuleLib Module -> (TVMFunction -> IO b) -> IO b
-withSingleFuncModule modlib handler =
-  case modlib of
-    (ModuleLib modpath (Module [Function nm _] _)) ->
-      withModule modpath $ \hmod ->
-      withFunction nm hmod $ \hfun ->
-        handler hfun
-    _ -> fail "withSingleFuncModule expects module with single function"
 
 withSingleFuncLModule :: ModuleLib LModule -> (TVMFunction -> IO b) -> IO b
 withSingleFuncLModule modlib handler =
@@ -280,15 +238,6 @@ withSingleFuncLModule modlib handler =
       withFunction nm hmod $ \hfun ->
         handler hfun
     _ -> fail "withSingleFuncLModule expects module with single function"
-
-singleFuncModule :: ModuleLib Module -> IO TVMFunction
-singleFuncModule modlib =
-  case modlib of
-    (ModuleLib modpath (Module [Function nm _] _)) -> do
-      m <- loadModule modpath
-      f <- loadFunction nm m
-      return f
-    _ -> fail "withSingleFuncModule expects module with single function"
 
 -- | FIXME: Protect modulePtr from cleanup
 singleFuncLModule :: ModuleLib LModule -> IO TVMFunction
@@ -300,27 +249,11 @@ singleFuncLModule modlib =
       return f
     _ -> fail "withSingleFuncModule expects module with single function"
 
-withTestFunction :: Stmt Function -> (TVMFunction -> IO b) -> IO b
-withTestFunction mf handler = withTestModule mf $ flip withSingleFuncModule handler
-
 withTestLFunction :: Stmt LoweredFunc -> (TVMFunction -> IO b) -> IO b
 withTestLFunction mf handler = withTestLModule (lmodul . (\x->[x]) =<< mf) $ flip withSingleFuncLModule handler
 
-shouldCompile :: Stmt Function -> IO ()
-shouldCompile = flip withTestFunction (const $ return ())
-
 shouldLCompile :: Stmt LoweredFunc -> IO ()
 shouldLCompile = flip withTestLFunction (const $ return ())
-
-modelProperty :: ModuleLib Module -> Gen ([TensorData],TensorData) -> PropertyM IO ()
-modelProperty modlib gen = do
-  func <- run $ singleFuncModule modlib
-  forAllM gen $ \(args,expected) -> do
-    tact <- run $ newEmptyTensor (toTvmDataType $ tensorDataType @Float) (tvmIShape expected) KDLCPU 0
-    targs <- forM args $ \t -> run $ newTensor t KDLCPU 0
-    run $ callTensorFunction tact func targs
-    (actual :: TensorData) <- run $ peekTensor tact
-    assert $ (epsilonEqual epsilon actual expected)
 
 lmodelProperty :: ModuleLib LModule -> Gen ([TensorData],TensorData) -> PropertyM IO ()
 lmodelProperty modlib gen = do

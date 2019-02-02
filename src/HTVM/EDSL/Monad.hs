@@ -94,18 +94,7 @@ stageTenExpr :: (Monad m) => StmtT m TenExpr -> m TenExpr
 stageTenExpr s = stage <$> runStmtT initStmtCtx s where
   stage (te,StmtCtx{sc_expr}) = sc_expr te
 
-stageFunctionT :: (Monad m) => StmtT m Function -> m Function
-stageFunctionT fe = stage <$> runStmtT initStmtCtx fe where
-  stage (Function n te,StmtCtx{sc_expr}) = Function n (sc_expr te)
-
 -- | Returned module contains all its definitions.
-stageModuleT :: (Monad m) => StmtT m Module -> m Module
-stageModuleT s = stage <$> runStmtT initStmtCtx s where
-  stage (Module funcs te,StmtCtx{sc_expr}) = Module funcs (sc_expr te)
-
-stageModule :: StmtT Identity Module -> Module
-stageModule = runIdentity . stageModuleT
-
 stageLFunctionT :: (Monad m) => StmtT m LoweredFunc -> m LoweredFunc
 stageLFunctionT fe = stage <$> runStmtT initStmtCtx fe where
   stage (LoweredFunc n te,StmtCtx{sc_expr}) = LoweredFunc n (sc_expr te)
@@ -141,19 +130,8 @@ instance TensorLike Tensor where toTenExpr (Tensor te) = te; fromTenExpr = Tenso
 assign :: forall m a . (TensorLike a, Monad m) => a -> StmtT m a
 assign a = fromTenExpr <$> assignN (toPattern @a) "asgn" (toTenExpr a)
 
--- | Function represents TVM expression which is a valid `Module`-function definition
--- Note that Module-functions ate not first-class objects in TVM (TODO: check
--- that fact).
--- TODO: Isn't it too complex? Should replace it with 1-to-1 LoweredFunc wrapper
 data Function = Function { funcName :: Text, unFunction :: TenExpr }
   deriving(Read,Show,Eq,Ord)
-
--- | Module contains a valid module expression and a set of module functions
-data Module = Module { modFuncs :: [Function] , modExpr :: TenExpr }
-  deriving(Read,Show,Eq,Ord)
-
-module2LModule :: Module -> LModule
-module2LModule (Module fns te) = LModule (map funcName fns) te
 
 -- FIXME: return from placeholders
 data Plh = Plh TenExpr
@@ -165,17 +143,6 @@ placeholder nm tp shp = Tensor $ TenPlh (nm,tp,shp)
 -- | Define a module function. Accepts its name @n@, Placeholder definitions
 -- @plh@ which become a type of arguments and a lambda function @fbody@ defining
 -- the body.  List passed to @fbody@ would have same length as @plh@.
-function :: (Monad m) => Text -> [Placeholder] -> ([Tensor] -> StmtT m Tensor) -> StmtT m Function
-function n plh fbody = do
-  Function <$> pure n <*> do
-    (\x -> assign_ (PFunc (Name n)) x >> pure (TenId (Name n))) =<< do
-      scope $ do
-        plhs <- forM plh $ assignN PTensor "plh" . TenPlh
-        Tensor bres <- fbody (map Tensor plhs)
-        res <- assignN PTenTuple "res" (TenTuple (plhs <> [bres]))
-        modify $ \s -> s{sc_expr = \te -> TenDef n ((sc_expr s) te)}
-        return res
-
 lfunction :: (Monad m) => Text -> [Placeholder] -> ([Tensor] -> StmtT m Tensor) -> StmtT m LoweredFunc
 lfunction nam plhs fbody = do
   ts <- mapM (\(n,t,s) -> assign $ placeholder n t s) plhs
@@ -183,6 +150,10 @@ lfunction nam plhs fbody = do
   s <- assign $ schedule [res]
   lower nam s (ts<>[res])
 
+-- | Function represents TVM expression which is a valid `Module`-function definition
+-- Note that Module-functions ate not first-class objects in TVM (TODO: check
+-- that fact).
+-- TODO: Isn't it too complex? Should replace it with 1-to-1 LoweredFunc wrapper
 data LoweredFunc = LoweredFunc { lfuncName :: Text, lfuncExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
@@ -257,11 +228,6 @@ shapevar de = do
 
 -- | FIXME: Module returned is only valid in the context of StmtT monad's state.
 -- One should encode this fact in types
-modul :: (Monad m) => [Function] -> StmtT m Module
-modul fns = do
-  n <- assignN PFuncTuple "lib" (TenTuple (map unFunction fns))
-  return $ Module fns n
-
 lmodul :: (Monad m) => [LoweredFunc] -> StmtT m LModule
 lmodul lfns = do
   n <- assignN PFuncTuple "lmod" (TenTuple (map lfuncExpr lfns))

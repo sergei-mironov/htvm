@@ -14,10 +14,13 @@ import HTVM.Prelude
 import HTVM.EDSL.Types
 import HTVM.EDSL.Printer
 
+import qualified Data.Text as Text
+
 -- | Takes C++ program and passes it through standalone formatter
 prettyCpp :: Text -> IO Text
 prettyCpp t = tpack <$> readCreateProcess (shell "clang-format") (tunpack t)
 
+-- | Dump program sources to text file @fp@
 dumpProgram :: FilePath -> ProgramSrc -> IO ()
 dumpProgram fp (ProgramSrc code) = do
   writeFile fp =<< prettyCpp code
@@ -30,7 +33,11 @@ data CompileConfig = CompileConfig {
 defaultConfig :: CompileConfig
 defaultConfig = CompileConfig Nothing False
 
--- | Compile TVM program, the binary will be placed to file @fp@
+-- | Prepends line numbers to the text
+withLineNumbers :: Text -> Text
+withLineNumbers code = Text.unlines (map (\(a,b) -> b <> " " <> a) ((Text.lines code)`zip`[tshow x | x<-[1..]]))
+
+-- | Compile some program, the binary will be placed to file @fp@
 compileProgram :: CompileConfig -> FilePath -> ProgramSrc -> IO ProgramBin
 compileProgram cc fp src@(ProgramSrc code) = do
   case (cc_dump cc) of
@@ -45,10 +52,12 @@ compileProgram cc fp src@(ProgramSrc code) = do
     hPutStr stdout out
   case ec of
     ExitFailure ec -> do
-      fail $ "compileProgram failure\n"
-          <> "Failed program was:\n\n" <> unlines (map (\(a,b) -> b <> " " <> a) ((lines pcode)`zip`[show x | x<-[1..]])) <> "\n"
-          <> "Compiler error:\n\n" <> err
-          <> "Compiler exit code: " <> show ec <> "\n"
+      fail $ tunpack $
+             "compileProgram failure\n"
+          <> "Failed program was:\n\n"
+          <> withLineNumbers code <> "\n"
+          <> "Compiler error:\n\n" <> tpack err
+          <> "Compiler exit code: " <> tshow ec <> "\n"
     ExitSuccess -> do
       return (ProgramBin fp)
 
@@ -77,8 +86,12 @@ runModuleGen (ModuleGen fp mod) =
 -- | Produce the model library from the Assembly, see `runModuleGen`.
 -- Binary will be placed to output file @fp@
 compileModule :: FilePath -> Assembly a -> IO (ModuleLib a)
-compileModule fp asm@(Assembly mod a) = do
-  (ec,out,err) <- readProcessWithExitCode "g++" ["-std=c++14", "-x", "assembler", "-shared", "-fPIC", "-o", fp, "-"] a
+compileModule fp asm@(Assembly mod asm_source) = do
+  (ec,out,err) <-
+    readProcessWithExitCode
+      "g++"
+      ["-std=c++14", "-x", "assembler", "-shared", "-fPIC", "-o", fp, "-"]
+      asm_source
   hPutStr stderr err
   hPutStr stdout out
   case ec of
