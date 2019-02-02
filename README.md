@@ -1,13 +1,13 @@
 HTVM
 ====
 
+**Both HTVM and TVM are under development. While TVM is somewhat stable, we
+don't recommend to use HTVM in applications currently.
+[GitHub repository](https://github.com/grwlf/htvm) may contain newer version of
+HTVM.**
+
 HTVM is a library which provides Haskell runtime and experimental frontend for
 [TVM](https://tvm.ai/about) the Machine Learning framework.
-
-**Both HTVM and TVM are under development. While TVM is somewhat stable, we
-don't recommend to use HTVM in applications currently**
-
-**[GitHub repository](https://github.com/grwlf/htvm) may contain newer version of HTVM**
 
 TVM in a nutshell
 -----------------
@@ -53,14 +53,14 @@ In HTVM we are going to provide:
 
 Combined TVM/HTVM-stack features are:
 
-### FFI
+#### FFI
 
   * Not many dependencies: TVM is much easier to build than other frameworks (hi
     TensorFlow). Models are compiled to binary code, no interpreters required.
   * Performance: HTVM uses TVM, which is designed with performace in mind.
   * Simplicity of code.
 
-### EDSL
+#### EDSL
 
   * Experimental status
   * Simplicity again. Pure ADT-based design.
@@ -70,21 +70,21 @@ Combined TVM/HTVM-stack features are:
 Install
 -------
 
-### Installing dependencies
+_Installing dependencies_
 
-1. Make sure you have `g++` and `llvm` installed.
+   * Make sure you have `g++` and `llvm` installed.
 
-2. Build tvm from development repository located at
-   https://github.com/grwlf/tvm, branch autodiff
+   * Build tvm from development repository located at
+     https://github.com/grwlf/tvm, branch autodiff
 
-   ```
-   $ git clone https://github.com/grwlf/tvm
-   $ cd tvm
-   $ git checkout origin/autodiff
-   .. follow up with the tvm build procedure
-   ```
+     ```
+     $ git clone https://github.com/grwlf/tvm
+     $ cd tvm
+     $ git checkout origin/autodiff
+     .. follow up with the tvm build procedure
+     ```
 
-### Building HTVM
+_Compiling the package_
 
 We use development environment specified in [Nix](https://nixos.org/nix)
 language. In order to open it, please install the
@@ -122,7 +122,7 @@ TODO: Update demo, write more examples
 Design notes
 ------------
 
-### TVM C Runtime
+#### FFI
 
 FFI for TVM C Runtime library is a Haskell package, linked to
 `libtvm_runtime.so`. This library contains functionality, required to load and
@@ -136,7 +136,7 @@ run ML code produced by TVM.
  4. No backends besides LLVM are tested. Adding them should not be hard and is
     on the TODO list.
 
-### TVM Haskell EDSL
+#### EDSL
 
 EDSL has a proof-of-concept status. It may be used to declare ML models in
 Haskell, convert them to TVM IR and finally compile.  Later, compiled model may be
@@ -150,28 +150,26 @@ cons, which are described below.
  1. `HTVM.EDSL.Types` module defines AST types which loosely corresponds to
     `Stmt` and `Expr` class hierarchies of TVM.
  2. `HTVM.EDSL.Monad` provides monadic interface to AST builders. We favored
-    simplicity over type-safety. We belive that overuse of Haskell type system
-    ruined many good libraries. The interface relies on simple ADTs whenever
+    simplicity over type-safety. The interface relies on simple ADTs whenever
     possible.
- 3. `HTVM.EDSL.Print` contain functions which print AST to C++ program of Model
-    Generator.
+ 3. `HTVM.EDSL.Print` contain functions which print AST to C++ program (a) of Model
+    Generator (b) which may be executed to obtain TVM module assembly.
  4. `HTVM.EDSL.Build` provides instruments to compile and run the model
     generator by executing `g++` and `clang` compilers:
-    * The Model Generator program builds TVM IR and generates LLVM assembly.
-      In HTVM, we support LLVM target, but more targets may be added later.
-    * We execute `clang` to compile LLVM into x86 '.so' library. Resulting
-      library may be loaded and executed by the Runtime code.
+    * The Model Generator program builds TVM IR and produces x86 assembly (c)
+    * We execute `clang` to compile x86 assembly into x86 '.so' library (d).
+    * Resulting library may be loaded and executed using `Rumtime` functions
 
 The whole data transformation pipeline goes as follows:
 
 ```
 
-Monadic    --> AST --> C++ --> Model --> LLVM --> Model --> Runtime FFI
-Interface   .       .       .  Gen    .  asm   .  Library
-            .       .       .         .        .
-            .     Print     .       Print      .
-           Run    C++      g++               clang
-
+Monadic    --> AST --> C++ --> Model --> X86 --> Model --> Runtime FFI
+Interface   .       .       .  Gen    .  asm  .  Library
+            .       .       .  (b)    .  (c)  .  (d)
+            .     Print     .       Print     .
+           Run    C++      g++              clang
+                  (a)
 ```
 
 Known disadvantages of C++ printing approach are:
