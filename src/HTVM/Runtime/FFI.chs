@@ -25,12 +25,18 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import HTVM.Prelude
 
--- | Errors raised by various functions from this module
+-- | Errors raised by various functions from FFI module
 data TVMError =
     TVMAllocFailed Int
   | TVMFreeFailed Int
-  | TVMModLoadFailed Int String
-  | TVMFuncLoadFailed Int Bool {- ^ null pointer flag -} String
+  | TVMModLoadFailed String  {- ^ function name -}
+                     Int     {- ^ function name -}
+                     Bool    {- ^ null pointer flag -}
+                     String  {- ^ Error message -}
+  | TVMFuncLoadFailed Text   {- ^ function name -}
+                      Int    {- ^ error code -}
+                      Bool   {- ^ null pointer flag -}
+                      String {- ^ Error message -}
   | TVMFunCallFailed Int String
   | TVMFunCallBadType Int
   | TVMCopyFailed Int String
@@ -349,7 +355,8 @@ tvmGetLastError :: IO String
 tvmGetLastError = peekCAString =<< tvmGetLastError_FFI
 
 -- | Load module named @modname@. Module will be freed when Haskell runtime
--- decide so.
+-- decide so. It is important to keep the `TVMModule` with every `TVMFunction`
+-- to prevent the runtime from garbage collecting the module early.
 loadModule :: FilePath -> IO TVMModule
 loadModule modname = do
   alloca $ \pmod -> do
@@ -359,10 +366,10 @@ loadModule modname = do
     pm <- peek pmod
     case (r, pm == nullPtr) of
       (0,False) -> peek pmod >>= newForeignPtr tvmModFree_
-      (err,b) -> throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
+      (err,b) -> throwIO =<< (TVMModLoadFailed modname (fromCInt err) b <$> tvmGetLastError)
 
 -- | Load module from dynamic library @modname@ and process it with a callback @func@
--- Module will be freed on return from @func@
+-- Module will be freed after @func@ returns
 withModule :: FilePath -> (TVMModule -> IO b) -> IO b
 withModule modname func =
   alloca $ \pmod -> do
@@ -377,7 +384,7 @@ withModule modname func =
         tvmModFree m
         return b
       (err,b) -> do
-        throwIO =<< (TVMModLoadFailed <$> pure (fromCInt err) <*> tvmGetLastError)
+        throwIO =<< (TVMModLoadFailed modname (fromCInt err) b <$> tvmGetLastError)
 
 -- | Load function named @funcname@ from module @mod@. Function will be
 -- freed when Haskell runtime decide so.
@@ -390,7 +397,7 @@ loadFunction funcname mod = do
     pf <- peek pfunc
     case (r,pf == nullPtr) of
       (0,False) -> peek pfunc >>= newForeignPtr tvmFuncFree_
-      (err,nullf) -> throwIO =<< (TVMFuncLoadFailed <$> pure (fromCInt err) <*> pure nullf <*> tvmGetLastError)
+      (err,nullf) -> throwIO =<< (TVMFuncLoadFailed funcname (fromCInt err) nullf <$> tvmGetLastError)
 
 -- | Load the function named @funcname@ from module @mod@, use it in callback @func@
 -- Function will be freed on return from @func@
@@ -408,8 +415,7 @@ withFunction funcname mod func =
         tvmFuncFree f
         return b
       (err,nullf) -> do
-        str <- tvmGetLastError
-        throwIO (TVMFuncLoadFailed (fromInteger $ toInteger err) nullf str)
+        throwIO =<< (TVMFuncLoadFailed funcname (fromCInt err) nullf <$> tvmGetLastError)
 
 -- | Call function @fun@ returning @ret@ with @args@
 --

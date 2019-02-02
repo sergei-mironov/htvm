@@ -60,5 +60,7 @@ printLFunctionIR cc m@(LoweredFunc _ te) = do
         error $ "printFunction: compileProgram failed, exit code " <> show ec
       ExitSuccess -> return (tpack out)
 
+-- | Prints the prettified C++ source of the TVM module generator
 printLModuleGenCpp :: CompileConfig -> LModule -> IO Text
 printLModuleGenCpp _ = prettyCpp . mgen_src . CPP.printLModuleGen
+
