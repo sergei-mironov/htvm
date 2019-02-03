@@ -82,17 +82,16 @@ fresh = fresh' "" ""
 runStmtT :: (Monad m) => StmtCtx -> StmtT m a -> m (a,StmtCtx)
 runStmtT ctx s = flip runStateT ctx $ unStmtT s
 
-scope :: (Monad m) => StmtT m TenExpr -> StmtT m TenExpr
-scope m = do
-  ctx0 <- get
-  (te,ctx1) <- lift $ runStmtT initStmtCtx{sc_gen=(sc_gen ctx0)} m
-  put ctx0{sc_gen=sc_gen ctx1}
-  -- traceM $ ppShow $ (sc_expr ctx1) te
-  return $ (sc_expr ctx1) te
-
 stageTenExpr :: (Monad m) => StmtT m TenExpr -> m TenExpr
 stageTenExpr s = stage <$> runStmtT initStmtCtx s where
   stage (te,StmtCtx{sc_expr}) = sc_expr te
+
+-- | Function represents TVM expression which is a valid `Module`-function definition
+-- Note that Module-functions ate not first-class objects in TVM (TODO: check
+-- that fact).
+-- TODO: Isn't it too complex? Should replace it with 1-to-1 LoweredFunc wrapper
+data LoweredFunc = LoweredFunc { lfuncName :: Text, lfuncExpr :: TenExpr }
+  deriving(Read,Show,Eq,Ord)
 
 -- | Returned module contains all its definitions.
 stageLFunctionT :: (Monad m) => StmtT m LoweredFunc -> m LoweredFunc
@@ -149,13 +148,6 @@ lfunction nam plhs fbody = do
   res <- fbody ts
   s <- assign $ schedule [res]
   lower nam s (ts<>[res])
-
--- | Function represents TVM expression which is a valid `Module`-function definition
--- Note that Module-functions ate not first-class objects in TVM (TODO: check
--- that fact).
--- TODO: Isn't it too complex? Should replace it with 1-to-1 LoweredFunc wrapper
-data LoweredFunc = LoweredFunc { lfuncName :: Text, lfuncExpr :: TenExpr }
-  deriving(Read,Show,Eq,Ord)
 
 data LModule = LModule { lmodFuncNames :: [Text], lmodExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
