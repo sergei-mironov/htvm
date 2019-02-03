@@ -41,18 +41,12 @@ buildLModule cc fp m = do
     asm <- runModuleGen mgen
     compileModule fp asm
 
--- stageBuildModule :: (MonadIO m) => CompileConfig -> FilePath -> StmtT m Module -> m (ModuleLib Module)
--- stageBuildModule cc fp m = stageModuleT m >>= liftIO . buildModule cc fp
-
--- stageBuildFunction :: (MonadIO m) => CompileConfig -> FilePath -> StmtT m Function -> m (ModuleLib Module)
--- stageBuildFunction cc fp m = stageModuleT (m >>= modul . (\x->[x])) >>= liftIO . buildModule cc fp
-
 -- | Compile and run IR code printer of the current function
 -- FIXME: It takes too long to execute this function.
-printLFunctionIR :: CompileConfig -> LoweredFunc -> IO Text
-printLFunctionIR cc m@(LoweredFunc _ te) = do
+showLFunctionIR :: CompileConfig -> LoweredFunc -> IO Text
+showLFunctionIR cc m@(LoweredFunc _ fdef _) = do
   withTmpf "printer" $ \f -> do
-    ProgramBin prg <- compileProgram cc f (CPP.printPrinter te)
+    ProgramBin prg <- compileProgram cc f (CPP.printPrinter fdef)
     let exec_fp = if isAbsolute prg then prg else "./" <> prg
     (ec,out,err) <- readProcessWithExitCode exec_fp [] []
     case ec of
@@ -60,7 +54,10 @@ printLFunctionIR cc m@(LoweredFunc _ te) = do
         error $ "printFunction: compileProgram failed, exit code " <> show ec
       ExitSuccess -> return (tpack out)
 
--- | Prints the prettified C++ source of the TVM module generator
-printLModuleGenCpp :: CompileConfig -> LModule -> IO Text
-printLModuleGenCpp _ = prettyCpp . mgen_src . CPP.printLModuleGen
+-- | Prints the function C++ code
+showLoweredFuncCpp :: CompileConfig -> LoweredFunc -> IO Text
+showLoweredFuncCpp _ = prettyCpp . CPP.printTenExpr . lfuncDefExpr
 
+-- | Prints the prettified C++ source of the TVM module generator
+showLModuleGenCpp :: CompileConfig -> LModule -> IO Text
+showLModuleGenCpp _ = prettyCpp . mgen_src . CPP.printLModuleGen

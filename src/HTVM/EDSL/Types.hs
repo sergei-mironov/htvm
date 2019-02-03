@@ -101,6 +101,7 @@ data Pattern =
   | PSchedule Name
   | PStage Name
   | PLoweredFunc Name
+  | PLModule Name
   deriving(Show,Read,Ord,Eq)
 
 -- | A registry of tensor-level function names

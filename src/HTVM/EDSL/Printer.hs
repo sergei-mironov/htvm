@@ -88,6 +88,7 @@ printPattern p =
     PSchedule n -> "tvm::Schedule " <> printName n
     PStage n -> "tvm::Stage " <> printName n
     PLoweredFunc n -> "tvm::LoweredFunc " <> printName n
+    PLModule n -> "tvm::runtime::Module " <> printName n
 
 printType :: Type -> Text
 printType t =

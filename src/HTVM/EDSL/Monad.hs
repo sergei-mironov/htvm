@@ -26,6 +26,11 @@ import Data.Text (Text)
 import HTVM.Prelude
 import HTVM.EDSL.Types
 
+class TensorLike a where
+  getTenExpr :: a -> TenExpr
+  modifyTenExpr :: a -> TenExpr -> a
+  toPattern :: Name -> Pattern
+
 data ExprCtx = ExprCtx {
    ec_expr :: Maybe Expr
   } deriving(Show)
@@ -89,22 +94,29 @@ stageTenExpr s = stage <$> runStmtT initStmtCtx s where
 -- | Function represents TVM expression which is a valid `Module`-function definition
 -- Note that Module-functions ate not first-class objects in TVM (TODO: check
 -- that fact).
--- TODO: Isn't it too complex? Should replace it with 1-to-1 LoweredFunc wrapper
-data LoweredFunc = LoweredFunc { lfuncName :: Text, lfuncExpr :: TenExpr }
+-- TODO: Isn't it too complex? Should we replace it with 1-to-1 LoweredFunc wrapper?
+data LoweredFunc = LoweredFunc {
+    lfuncName :: Text
+  -- ^ Function name
+  , lfuncDefExpr :: TenExpr
+  -- ^ Defenition expression, as seen by `lower` function
+  , lfuncRefExpr :: TenExpr
+  -- ^ Reference expression, may be either full definition or reference
+  }
   deriving(Read,Show,Eq,Ord)
 
--- | Returned module contains all its definitions.
-stageLFunctionT :: (Monad m) => StmtT m LoweredFunc -> m LoweredFunc
-stageLFunctionT fe = stage <$> runStmtT initStmtCtx fe where
-  stage (LoweredFunc n te,StmtCtx{sc_expr}) = LoweredFunc n (sc_expr te)
+instance TensorLike LoweredFunc where
+  getTenExpr = lfuncRefExpr
+  modifyTenExpr lf te = lf{lfuncRefExpr = te}
+  toPattern = PLoweredFunc
 
 -- | Returned module contains all its definitions.
-stageLModuleT :: (Monad m) => StmtT m LModule -> m LModule
-stageLModuleT s = stage <$> runStmtT initStmtCtx s where
-  stage (LModule funcs te,StmtCtx{sc_expr}) = LModule funcs (sc_expr te)
+stageStmtT :: (Monad m, TensorLike t) => StmtT m t -> m t
+stageStmtT s = stage <$> runStmtT initStmtCtx s where
+  stage (t,StmtCtx{sc_expr}) = modifyTenExpr t (sc_expr (getTenExpr t))
 
-stageLModule :: StmtT Identity LModule -> LModule
-stageLModule = runIdentity . stageLModuleT
+stageStmt :: (TensorLike t) => StmtT Identity t -> t
+stageStmt = runIdentity . stageStmtT
 
 data Tensor = Tensor TenExpr
   deriving(Show,Read,Eq,Ord)
@@ -119,18 +131,10 @@ assignN mkpat prefix te1 = do
   assign_ (mkpat n) te1
   return (TenId n)
 
-class TensorLike a where
-  toTenExpr :: a -> TenExpr
-  toPattern :: Name -> Pattern
-  fromTenExpr :: TenExpr -> a
+instance TensorLike Tensor where getTenExpr (Tensor te) = te; modifyTenExpr = const Tensor; toPattern = PTensor
 
-instance TensorLike Tensor where toTenExpr (Tensor te) = te; fromTenExpr = Tensor; toPattern = PTensor
-
-assign :: forall m a . (TensorLike a, Monad m) => a -> StmtT m a
-assign a = fromTenExpr <$> assignN (toPattern @a) "asgn" (toTenExpr a)
-
-data Function = Function { funcName :: Text, unFunction :: TenExpr }
-  deriving(Read,Show,Eq,Ord)
+assign :: forall m t . (TensorLike t, Monad m) => t -> StmtT m t
+assign t = modifyTenExpr t <$> assignN (toPattern @t) "val" (getTenExpr t)
 
 -- FIXME: return from placeholders
 data Plh = Plh TenExpr
@@ -146,22 +150,28 @@ lfunction :: (Monad m) => Text -> [Placeholder] -> ([Tensor] -> StmtT m Tensor) 
 lfunction nam plhs fbody = do
   ts <- mapM (\(n,t,s) -> assign $ placeholder n t s) plhs
   res <- fbody ts
-  s <- assign $ schedule [res]
-  lower nam s (ts<>[res])
+  lower nam (schedule [res]) (ts<>[res])
 
 data LModule = LModule { lmodFuncNames :: [Text], lmodExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
+instance TensorLike LModule where
+  getTenExpr = lmodExpr
+  modifyTenExpr lm e = lm { lmodExpr = e }
+  toPattern = PLModule
+
 lower :: (Monad m) => Text -> Schedule -> [Tensor] -> StmtT m LoweredFunc
-lower fname (Schedule s) plh = do
-  LoweredFunc fname <$> do
-    assignN PLoweredFunc "lf" $ lfuncExpr $
-      LoweredFunc fname $ TenSlice (TenCall TenLower [TenArg s, TenArg $ TenTuple [t|Tensor t<-plh], StrArg fname]) 0
+lower fname (Schedule s) plh =
+  let
+    f = TenSlice (TenCall TenLower [TenArg s, TenArg $ TenTuple [t|Tensor t<-plh], StrArg fname]) 0
+  in do
+  StmtCtx{..} <- get
+  assign $ LoweredFunc fname (sc_expr f) f
 
 data Tuple = Tuple TenExpr
   deriving(Show,Read,Eq,Ord)
 
-instance TensorLike Tuple where toTenExpr (Tuple te) = te; fromTenExpr = Tuple; toPattern = PTenTuple
+instance TensorLike Tuple where getTenExpr (Tuple te) = te; modifyTenExpr = const Tuple; toPattern = PTenTuple
 
 batchCompute' :: ShapeExpr -> Name -> (Expr -> [Expr]) -> TenExpr
 batchCompute' se nm body = TenCompute se (PAxis nm) (ETuple $ body (EId nm))
@@ -222,7 +232,7 @@ shapevar de = do
 -- One should encode this fact in types
 lmodul :: (Monad m) => [LoweredFunc] -> StmtT m LModule
 lmodul lfns = do
-  n <- assignN PFuncTuple "lmod" (TenTuple (map lfuncExpr lfns))
+  n <- assignN PFuncTuple "lmod" (TenTuple (map lfuncRefExpr lfns))
   return $ LModule (map lfuncName lfns) n
 
 -- | FIXME: Convertion from TenExpr to Expr looks weitd. Rethink returning
@@ -402,7 +412,7 @@ differentiate (Tensor a) ts = Tuple $ TenCall TenDifferentiate [TenArg a, TenArg
 data Schedule = Schedule TenExpr
   deriving(Show,Read,Eq,Ord)
 
-instance TensorLike Schedule where toTenExpr (Schedule s) = s; fromTenExpr = Schedule; toPattern = PSchedule
+instance TensorLike Schedule where getTenExpr (Schedule s) = s; modifyTenExpr = const Schedule; toPattern = PSchedule
 
 schedule :: [Tensor] -> Schedule
 schedule ts = Schedule (TenCall TenSchedule [TenArg $ TenTuple [t|Tensor t<-ts]])

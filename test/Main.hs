@@ -209,7 +209,7 @@ testLModelProperty desc mf gens =
     (nm,h) <- openTempFile tmpDir "htvm-test-module"
     hClose h
     buildLModule defaultConfig nm $
-      stageLModule $ do
+      stageStmt $ do
         f <- mf
         lmodul [f]
   )
@@ -228,7 +228,7 @@ withTestLModule mf act =
     {- traceM $ "file: " <> fp -}
     act =<< do
       buildLModule defaultConfig fp $
-        stageLModule mf
+        stageStmt mf
 
 withSingleFuncLModule :: ModuleLib LModule -> (TVMFunction -> IO b) -> IO b
 withSingleFuncLModule modlib handler =
@@ -415,8 +415,8 @@ main = defaultMain $
     , testCase "Function printer should work" $
         do
         dump <-
-          printLFunctionIR defaultConfig =<< do
-            stageLFunctionT $ do
+          showLFunctionIR defaultConfig =<< do
+            stageStmtT $ do
               s <- shapevar [10]
               lfunction "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
                 compute s $ \e -> a![e] + b![e]

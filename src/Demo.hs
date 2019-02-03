@@ -10,9 +10,9 @@ main :: IO ()
 main = do
   return ()
 
-demo1 :: IO Module
+demo1 :: IO LModule
 demo1 =
-  stageModuleT $ do
+  stageStmtT $ do
     n <- dimvar
     s <- shapevar [10]
     x <- dimvar

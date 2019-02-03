@@ -2,18 +2,43 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NondecreasingIndentation #-}
 
 module Main where
+
+import qualified Data.Text.IO as Text
 
 import Control.Monad(when)
 import Control.Monad.Trans(liftIO)
 import Control.Concurrent(forkIO)
+import Data.Text(Text)
 
 import HTVM
 import MNIST
 
+printFunction f =
+  Text.putStrLn =<< withLineNumbers <$> showLoweredFuncCpp defaultConfig f
 
-model :: IO (ModuleLib Module)
+demo1 :: StmtT IO LModule
+demo1 = do
+  sa <- shapevar [1]
+
+  a <- assign $ placeholder "A" float32 sa
+  c <- compute sa $ \i -> (a![i])*(a![i])
+  f1 <- lower "a" (schedule [c]) [a,c]
+
+  liftIO $ putStrLn "c" >> printFunction f1
+
+  dc <- assign $ (differentiate c [a]) ! 0
+  f2 <- lower "da" (schedule [dc]) [a,dc]
+
+  liftIO $ putStrLn "dc" >> printFunction f2
+
+  lmodul [f1,f2]
+
+
+{-
+model :: IO (ModuleLib LModule)
 model = do
   stageBuildFunction defaultConfig "model.so" $ do
     sa <- shapevar [1]
@@ -22,7 +47,7 @@ model = do
       dc <- assign $ differentiate c [a]
       return (dc!0)
 
-conv2d :: IO (ModuleLib Module)
+conv2d :: IO (ModuleLib LModule)
 conv2d = do
   stageBuildFunction defaultConfig "model.so" $
     let
@@ -49,6 +74,8 @@ conv2d = do
       t <- assign $ relu t
       t <- assign $ flatten t
       return t
+
+-}
 
 main :: IO ()
 main = do
