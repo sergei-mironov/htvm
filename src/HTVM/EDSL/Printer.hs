@@ -123,6 +123,8 @@ printLayout l =
     NWCN -> "NWCN"
     NHWC -> "NHWC"
 
+arglist f x = Text.intercalate "," (f x)
+
 printTenExpr :: TenExpr -> Text
 printTenExpr te =
   let
@@ -152,6 +154,40 @@ printTenExpr te =
         line $ "auto lowered = tvm::lower(s, f, \"" <> n <> "\", binds, config);"
         line $ "lowered[0];"
         line $ "})"
+    TenCall api ->
+      case api of
+        TenAPI_Op text a b -> go a <> text <> go b
+        TenAPI_ReduceAxis te -> "tvm::reduce_axis(" <> go te <> ")"
+        TenAPI_Conv2d TenAPI_Conv2dArgs{..} ->
+          "topi::conv2d_nchw(" <>
+            go conv2d_input <> "," <>
+            go conv2d_kernel <> ")" -- FIXME: pass all args
+        TenAPI_Pad TenAPI_PadArgs{..} ->
+          "topi::pad(" <> "FIXME: pad args" <> ")"
+        TenAPI_Schedule te ->
+          "htvm_create_schedule(" <> Text.intercalate "," (go te) <> ")"
+        TenAPI_Parallel s {- ^ schedule -} inp {- ^ inp -} iv {- ^ IterVar -} ->.
+          error "parallel is not implemented"
+        TenAPI_AxisId te {- ^ tensor -} aid {- ^ Axis ID -} ->
+          "htvm_axis_id(" <> go te <> "," <> tshow aid <> ")"
+        TenAPI_MatMul a b ->
+          "topi::matmul(" <> go a <> "," <> go b <> ")"
+        TenAPI_Elemwise opname {- ^ Op name -} a b ->
+          "topi::"<>opname<>"(" <> go a <> "," <> go b <> ")"
+        TenAPI_Split te1 indices te2 ->
+          "topi::split(" <> go te1 <> "," <> Text.intercalate "," indices <> go te2 <> ")"
+        TenAPI_Differentiate inp refs ->
+          "tvm::differentiate(" <> go inp <> "," <> arglist go refs <> ")"
+        TenAPI_BroadcastTo te {- ^ What -} sh {- ^ To which shape -} ->
+          "topi::broadcast_to(" <> go te <> "," <> sh <> ")"
+        TenAPI_Flatten te ->
+          "topi::nn::flatten(" <> go te <> ")"
+        TenAPI_Dense c {-^ c -} w {-^ w -} b {- ^ b -} ->
+          "topi::nn::dense(" <> go c <> ")"
+        TenAPI_Lower  :: fname {-^ fname -} [TenExpr] {-^ Schedule -} {-^ placeholders -} ->
+          "tvm::lower(" <> fname <> "," <>  print
+
+{-
     TenCall nm es ->
       let
         parg arg =
@@ -177,6 +213,7 @@ printTenExpr te =
             ])
         _ ->
           call (map parg es)
+-}
 
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")

@@ -105,6 +105,7 @@ data Pattern =
   deriving(Show,Read,Ord,Eq)
 
 -- | A registry of tensor-level function names
+-- FIXME: replace with direct API encoding
 data TenFuncName =
     TenOp Text
   | TenReduceAxis
@@ -123,7 +124,44 @@ data TenFuncName =
   | TenLower
   deriving(Show,Read,Ord,Eq)
 
+data TenAPI_Conv2dArgs = TenAPI_Conv2dArgs {
+    conv2d_input :: TenExpr
+  , conv2d_kernel :: TenExpr
+  , conv2d_stride :: (DimExpr,DimExpr) -- ^ FIXME: replace with Expr?  (here and below)
+  , conv2d_padding ::(DimExpr,DimExpr)
+  , conv2d_dilation :: (DimExpr,DimExpr)
+  , conv2d_type :: Type
+  , conv2d_name :: Text
+  , conv2d_layout :: Layout
+  } deriving(Read,Show,Eq,Ord)
+
+data TenAPI_PadArgs = TenAPI_PadArgs {
+    pad_before :: [Expr]
+  , pad_after :: [Expr]
+  , pad_value :: Expr
+  , pad_name :: Text
+  } deriving(Read,Show,Eq,Ord)
+
+data TenAPI =
+    TenAPI_Op Text TenExpr TenExpr
+  | TenAPI_ReduceAxis TenExpr
+  | TenAPI_Conv2d TenAPI_Conv2dArgs
+  | TenAPI_Pad TenAPI_PadArgs
+  | TenAPI_Schedule [TenExpr]
+  | TenAPI_Parallel TenExpr {- ^ schedule -} TenExpr {- ^ inp -} TenExpr {- ^ IterVar -}
+  | TenAPI_AxisId TenExpr {- ^ tensor -} Integer {- ^ Axis ID -}
+  | TenAPI_MatMul TenExpr TenExpr
+  | TenAPI_Elemwise Text {- ^ Op name -} TenExpr TenExpr
+  | TenAPI_Split TenExpr [Integer] Integer
+  | TenAPI_Differentiate TenExpr TenExpr
+  | TenAPI_BroadcastTo TenExpr {- ^ What -} ShapeExpr {- ^ To which shape -}
+  | TenAPI_Flatten TenExpr
+  | TenAPI_Dense TenExpr {-^ c -} TenExpr {-^ w -} TenExpr {- ^ b -}
+  | TenAPI_Lower Text {-^ fname -} TenExpr {-^ Schedule -} [TenExpr] {-^ placeholders -}
+  deriving(Show,Read,Ord,Eq)
+
 -- | Kinds of arguments received by `TenCall`
+-- FIXME deprecated
 data TenArg =
     TenArg TenExpr           -- ^ Ordinary argument, another `TenExpr`
   | StrArg Text              -- ^ String argument
@@ -165,10 +203,7 @@ data TenExpr =
                              -- ^ Name and Expression of function definition.
                              --   FIXME: TenDef would be redundant in the presence of
                              --   typechecker.
-  | TenCall { tc_fname::TenFuncName, tc_args::[TenArg] }
-                             -- ^ Function call.
-                             --   `tc_fname` is the name of a function.
-                             --   `tc_args` is its arguments.
+  | TenCall TenAPI           -- ^ API function call.
   deriving(Show,Read,Ord,Eq)
 
 
