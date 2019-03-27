@@ -163,7 +163,7 @@ instance TensorLike LModule where
 lower :: (Monad m) => Text -> Schedule -> [Tensor] -> StmtT m LoweredFunc
 lower fname (Schedule s) plh =
   let
-    f = TenSlice (TenCall TenLower [TenArg s, TenArg $ TenTuple [t|Tensor t<-plh], StrArg fname]) 0
+    f = TenSlice (TenCall $ TenAPI_Lower fname s [t|Tensor t<-plh]) 0
   in do
   StmtCtx{..} <- get
   assign $ LoweredFunc fname (sc_expr f) f
@@ -208,8 +208,8 @@ instance Computable (Expr,Expr,Expr,Expr,Expr) where compute se f = uniCompute s
 --   assign $ compute' (TenShape se) axis (\x -> ebody (map (EShapeSlice x) dims))
 
 -- | Call a function
-call :: TenFuncName -> [TenExpr] -> TenExpr
-call fname args = TenCall fname (map TenArg args)
+-- call :: TenFuncName -> [TenExpr] -> TenExpr
+-- call fname args = TenCall fname (map TenArg args)
 
 ecall :: ExprFuncName -> [Expr] -> Expr
 ecall nm args = ECall nm args
@@ -238,7 +238,8 @@ lmodul lfns = do
 -- | FIXME: Convertion from TenExpr to Expr looks weitd. Rethink returning
 -- expression from statement monad
 axisId :: (Monad m) => Tensor -> Integer -> StmtT m IterVar
-axisId (Tensor t) i = IterVar . (\(TenId n) -> EId n) <$> assignN PIterVar "axis" (TenCall TenAxisId [TenArg t, IntArg i])
+axisId (Tensor t) i = IterVar . (\(TenId n) -> EId n) <$> assignN PIterVar "axis"
+  (TenCall $ TenAPI_AxisId t i)
 
 data IterVar = IterVar Expr
   deriving(Show,Read,Eq,Ord)
@@ -246,7 +247,8 @@ data IterVar = IterVar Expr
 -- | FIXME: Convertion from TenExpr to Expr looks weitd. Rethink returning
 -- expression from statement monad
 reduce_axis :: (Monad m) => (DimExpr,DimExpr) -> StmtT m IterVar
-reduce_axis (a,b) = IterVar . (\(TenId n) -> EId n) <$> assignN PIterVar "reduce_axis" (TenCall TenReduceAxis [TenArg $ TenTuple [TenDim a, TenDim b]])
+reduce_axis (a,b) = IterVar . (\(TenId n) -> EId n) <$> assignN PIterVar "reduce_axis"
+  (TenCall $ TenAPI_ReduceAxis $ TenTuple [TenDim a, TenDim b])
 
 infixr 8 !
 
@@ -284,11 +286,11 @@ class HasDefault a where
 FIXME: Bindings are highly C++ - specific, rethink
 -}
 
-op1 op (Tensor a) = Tensor $ TenCall (TenOp op) [TenArg a]
-op2 op (Tensor a) (Tensor b) = Tensor $ TenCall (TenOp op) [TenArg a, TenArg b]
+op1 nam (Tensor a) = Tensor $ TenCall $ TenAPI_Op nam [a]
+op2 nam (Tensor a) (Tensor b) = Tensor $ TenCall $ TenAPI_Op nam [a,b]
 
-elemwise1 op (Tensor a) = Tensor $ TenCall (TenElemwise op) [TenArg a]
-elemwise2 op (Tensor a) (Tensor b) = Tensor $ TenCall (TenElemwise op) [TenArg a, TenArg b]
+elemwise1 op (Tensor a) = Tensor $ TenCall $ TenAPI_Elemwise op [a]
+elemwise2 op (Tensor a) (Tensor b) = Tensor $ TenCall $ TenAPI_Elemwise op [a,b]
 
 instance Num Tensor where
   (+) = op2 "+"
@@ -337,16 +339,8 @@ data Conv2dArgs = Conv2dArgs {
 instance HasDefault Conv2dArgs where
   def = Conv2dArgs (1,1) (1,1) (1,1) TypeFloat32 "conv2d"
 
-conv2d_nchw :: Tensor -> Tensor -> Conv2dArgs -> Tensor
-conv2d_nchw (Tensor x) (Tensor k) Conv2dArgs{..} =
-  Tensor $ TenCall TenConv2d_NCHW [
-    TenArg x, TenArg k,
-    TenArg $ TenDim $ DimConst $ fst conv2d_stride,
-    TenArg $ TenDim $ DimConst $ snd conv2d_stride,
-    TenArg $ TenDim $ DimConst $ fst conv2d_padding,
-    TenArg $ TenDim $ DimConst $ snd conv2d_padding,
-    StrArg conv2d_name
-    ]
+conv2d_nchw :: Tensor -> Tensor -> TenAPI_Conv2dArgs -> Tensor
+conv2d_nchw (Tensor x) (Tensor k) ca = Tensor $ TenCall $ TenAPI_Conv2d ca
 
 data PadArgs = PadArgs {
     pad_before :: [Expr]
@@ -358,24 +352,17 @@ data PadArgs = PadArgs {
 instance HasDefault PadArgs where
   def = PadArgs [] [] 0 "pad"
 
-pad :: Tensor -> PadArgs -> Tensor
-pad (Tensor x) PadArgs{..} =
-  Tensor $ TenCall TenPad [
-      TenArg x
-    , TenArg $ TenExpr $ ETuple pad_before
-    , TenArg $ TenExpr $ ETuple pad_after
-    , TenArg $ TenExpr $ pad_value
-    , StrArg pad_name
-    ]
+pad :: Tensor -> TenAPI_PadArgs -> Tensor
+pad (Tensor x) pa = Tensor $ TenCall $ TenAPI_Pad pa
 
 matmul :: Tensor -> Tensor -> Tensor
-matmul (Tensor a) (Tensor b) = Tensor $ TenCall TenMatMul [TenArg a, TenArg b]
+matmul (Tensor a) (Tensor b) = Tensor $ TenCall $ TenAPI_MatMul a b
 
 dense :: Tensor -> Tensor -> Tensor -> Tensor
-dense (Tensor x) (Tensor w) (Tensor b) = Tensor $ TenCall TenDense [TenArg x, TenArg w, TenArg b]
+dense (Tensor x) (Tensor w) (Tensor b) = Tensor $ TenCall $ TenAPI_Dense x w b
 
 broadcast_to :: Tensor -> ShapeExpr -> Tensor
-broadcast_to (Tensor a) se = Tensor $ TenCall TenBroadcastTo [TenArg a, ShapeArg se]
+broadcast_to (Tensor a) se = Tensor $ TenCall $ TenAPI_BroadcastTo a se
 
 sigmoid :: Tensor -> Tensor
 sigmoid = elemwise1 "sigmoid"
@@ -384,14 +371,14 @@ relu :: Tensor -> Tensor
 relu = elemwise1 "relu"
 
 flatten :: Tensor -> Tensor
-flatten (Tensor a) = Tensor $ TenCall TenFlatten [TenArg a]
+flatten (Tensor a) = Tensor $ TenCall $ TenAPI_Flatten a
 
 split :: Tensor -> [Integer] -> Integer -> Tuple
-split (Tensor a) indices axis = Tuple $ TenCall TenSplit [TenArg a, IntsArg indices, IntArg axis]
+split (Tensor a) indices axis = Tuple $ TenCall $ TenAPI_Split a indices axis
 
 
 differentiate :: Tensor -> [Tensor] -> Tuple
-differentiate (Tensor a) ts = Tuple $ TenCall TenDifferentiate [TenArg a, TenArg $ TenTuple [t|(Tensor t)<-ts]]
+differentiate (Tensor a) ts = Tuple $ TenCall $ TenAPI_Differentiate a (TenTuple [t|(Tensor t)<-ts])
 
 {-
  ____       _              _       _
@@ -415,9 +402,9 @@ data Schedule = Schedule TenExpr
 instance TensorLike Schedule where getTenExpr (Schedule s) = s; modifyTenExpr = const Schedule; toPattern = PSchedule
 
 schedule :: [Tensor] -> Schedule
-schedule ts = Schedule (TenCall TenSchedule [TenArg $ TenTuple [t|Tensor t<-ts]])
+schedule ts = Schedule $ TenCall $ TenAPI_Schedule [t|Tensor t<-ts]
 
 parallel :: (Monad m) => Schedule -> Tensor -> IterVar -> StmtT m ()
 parallel (Schedule s) (Tensor t) (IterVar a) =
-  return () <* assignN PStage "stage" (TenCall TenParallel [TenArg s, TenArg t, TenArg $ TenExpr a])
+  return () <* assignN PStage "stage" (TenCall $ TenAPI_Parallel s t (TenExpr a))
 

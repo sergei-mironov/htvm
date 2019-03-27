@@ -156,7 +156,9 @@ printTenExpr te =
         line $ "})"
     TenCall api ->
       case api of
-        TenAPI_Op text a b -> go a <> text <> go b
+        TenAPI_Op text [a] -> text <> go a
+        TenAPI_Op text [a,b] -> go a <> text <> go b
+        TenAPI_Op text _ -> error "TenAPI_Op only supports 1- or 2- arg operations"
         TenAPI_ReduceAxis te -> "tvm::reduce_axis(" <> go te <> ")"
         TenAPI_Conv2d TenAPI_Conv2dArgs{..} ->
           "topi::conv2d_nchw(" <>
@@ -165,27 +167,30 @@ printTenExpr te =
         TenAPI_Pad TenAPI_PadArgs{..} ->
           "topi::pad(" <> "FIXME: pad args" <> ")"
         TenAPI_Schedule te ->
-          "htvm_create_schedule(" <> Text.intercalate "," (go te) <> ")"
-        TenAPI_Parallel s {- ^ schedule -} inp {- ^ inp -} iv {- ^ IterVar -} ->.
+          "htvm_create_schedule(" <> Text.intercalate "," (map go te) <> ")"
+        TenAPI_Parallel s {- ^ schedule -} inp {- ^ inp -} iv {- ^ IterVar -} ->
           error "parallel is not implemented"
         TenAPI_AxisId te {- ^ tensor -} aid {- ^ Axis ID -} ->
           "htvm_axis_id(" <> go te <> "," <> tshow aid <> ")"
         TenAPI_MatMul a b ->
           "topi::matmul(" <> go a <> "," <> go b <> ")"
-        TenAPI_Elemwise opname {- ^ Op name -} a b ->
+        TenAPI_Elemwise opname {- ^ Op name -} [a,b] ->
           "topi::"<>opname<>"(" <> go a <> "," <> go b <> ")"
+        TenAPI_Elemwise opname {- ^ Op name -} _ ->
+          error "TenAPI_Elemwise only supports 2- args operations"
         TenAPI_Split te1 indices te2 ->
-          "topi::split(" <> go te1 <> "," <> Text.intercalate "," indices <> go te2 <> ")"
-        TenAPI_Differentiate inp refs ->
-          "tvm::differentiate(" <> go inp <> "," <> arglist go refs <> ")"
+          "topi::split(" <> go te1 <> "," <> Text.intercalate "," (map tshow indices) <> "," <> tshow te2 <> ")"
+        TenAPI_Differentiate inp ref ->
+          "tvm::differentiate(" <> go inp <> "," <> go ref <> ")"
         TenAPI_BroadcastTo te {- ^ What -} sh {- ^ To which shape -} ->
-          "topi::broadcast_to(" <> go te <> "," <> sh <> ")"
+          "topi::broadcast_to(" <> go te <> "," <> printShapeExpr sh <> ")"
         TenAPI_Flatten te ->
           "topi::nn::flatten(" <> go te <> ")"
         TenAPI_Dense c {-^ c -} w {-^ w -} b {- ^ b -} ->
           "topi::nn::dense(" <> go c <> ")"
-        TenAPI_Lower  :: fname {-^ fname -} [TenExpr] {-^ Schedule -} {-^ placeholders -} ->
-          "tvm::lower(" <> fname <> "," <>  print
+        TenAPI_Lower fname sched plh ->
+          "tvm::lower(" <> fname <> ", {" <> go sched <> "} , {" <>
+            Text.intercalate "," (map go plh) <> ")"
 
 {-
     TenCall nm es ->

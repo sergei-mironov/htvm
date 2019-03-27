@@ -143,7 +143,7 @@ data TenAPI_PadArgs = TenAPI_PadArgs {
   } deriving(Read,Show,Eq,Ord)
 
 data TenAPI =
-    TenAPI_Op Text TenExpr TenExpr
+    TenAPI_Op Text {-^ Operation name -} [TenExpr] {-^ operands unary,binary,etc -}
   | TenAPI_ReduceAxis TenExpr
   | TenAPI_Conv2d TenAPI_Conv2dArgs
   | TenAPI_Pad TenAPI_PadArgs
@@ -151,9 +151,9 @@ data TenAPI =
   | TenAPI_Parallel TenExpr {- ^ schedule -} TenExpr {- ^ inp -} TenExpr {- ^ IterVar -}
   | TenAPI_AxisId TenExpr {- ^ tensor -} Integer {- ^ Axis ID -}
   | TenAPI_MatMul TenExpr TenExpr
-  | TenAPI_Elemwise Text {- ^ Op name -} TenExpr TenExpr
+  | TenAPI_Elemwise Text {- ^ Op name -} [TenExpr] {-^ Operands -}
   | TenAPI_Split TenExpr [Integer] Integer
-  | TenAPI_Differentiate TenExpr TenExpr
+  | TenAPI_Differentiate TenExpr TenExpr -- FIXME: support list of targets
   | TenAPI_BroadcastTo TenExpr {- ^ What -} ShapeExpr {- ^ To which shape -}
   | TenAPI_Flatten TenExpr
   | TenAPI_Dense TenExpr {-^ c -} TenExpr {-^ w -} TenExpr {- ^ b -}
