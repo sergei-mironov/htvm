@@ -97,24 +97,24 @@ printType t =
     TypeInt32 ->  "tvm::Int(32)"
     TypeTensor _ _ -> "tvm::Tensor()"
 
-printTenFuncName :: TenFuncName -> Text
-printTenFuncName fn =
-  case fn of
-    TenOp op -> op
-    TenReduceAxis -> "tvm::reduce_axis"
-    TenConv2d_NCHW -> "topi::conv2d_nchw"
-    TenPad -> "topi::pad"
-    TenSchedule -> "htvm_create_schedule"
-    TenParallel -> "htvm_parallel"
-    TenAxisId -> "htvm_axis_id"
-    TenMatMul -> "topi::matmul"
-    TenElemwise x -> "topi::"<>x
-    TenSplit -> "topi::split"
-    TenDifferentiate -> "htvm_differentiate"
-    TenBroadcastTo -> "topi::broadcast_to"
-    TenFlatten -> "topi::nn::flatten"
-    TenDense -> "topi::nn::dense"
-    TenLower -> "tvm::lower"
+-- printTenFuncName :: TenFuncName -> Text
+-- printTenFuncName fn =
+--   case fn of
+--     TenOp op -> op
+--     TenReduceAxis -> "tvm::reduce_axis"
+--     TenConv2d_NCHW -> "topi::conv2d_nchw"
+--     TenPad -> "topi::pad"
+--     TenSchedule -> "htvm_create_schedule"
+--     TenParallel -> "htvm_parallel"
+--     TenAxisId -> "htvm_axis_id"
+--     TenMatMul -> "topi::matmul"
+--     TenElemwise x -> "topi::"<>x
+--     TenSplit -> "topi::split"
+--     TenDifferentiate -> "htvm_differentiate"
+--     TenBroadcastTo -> "topi::broadcast_to"
+--     TenFlatten -> "topi::nn::flatten"
+--     TenDense -> "topi::nn::dense"
+--     TenLower -> "tvm::lower"
 
 printLayout :: Layout -> Text
 printLayout l =
@@ -160,14 +160,12 @@ printTenExpr te =
         TenAPI_Op text [a,b] -> go a <> text <> go b
         TenAPI_Op text _ -> error "TenAPI_Op only supports 1- or 2- arg operations"
         TenAPI_ReduceAxis te -> "tvm::reduce_axis(" <> go te <> ")"
-        TenAPI_Conv2d TenAPI_Conv2dArgs{..} ->
-          "topi::conv2d_nchw(" <>
-            go conv2d_input <> "," <>
-            go conv2d_kernel <> ")" -- FIXME: pass all args
+        TenAPI_Conv2d x k TenAPI_Conv2dArgs{..} ->
+          "topi::conv2d_nchw(" <> go x <> "," <> go k <> ")" -- FIXME: pass all args
         TenAPI_Pad TenAPI_PadArgs{..} ->
           "topi::pad(" <> "FIXME: pad args" <> ")"
         TenAPI_Schedule te ->
-          "htvm_create_schedule(" <> Text.intercalate "," (map go te) <> ")"
+          "htvm_create_schedule({" <> Text.intercalate "," (map go te) <> "})"
         TenAPI_Parallel s {- ^ schedule -} inp {- ^ inp -} iv {- ^ IterVar -} ->
           error "parallel is not implemented"
         TenAPI_AxisId te {- ^ tensor -} aid {- ^ Axis ID -} ->
@@ -187,10 +185,9 @@ printTenExpr te =
         TenAPI_Flatten te ->
           "topi::nn::flatten(" <> go te <> ")"
         TenAPI_Dense c {-^ c -} w {-^ w -} b {- ^ b -} ->
-          "topi::nn::dense(" <> go c <> ")"
+          "topi::nn::dense(" <> go c <> "," <> go w <> "," <> go b <> ")"
         TenAPI_Lower fname sched plh ->
-          "tvm::lower(" <> fname <> ", {" <> go sched <> "} , {" <>
-            Text.intercalate "," (map go plh) <> ")"
+          "tvm::lower(" <> go sched <> ", {" <> Text.intercalate "," (map go plh) <> "},\"" <> fname <> "\", {}, tvm::build_config())"
 
 {-
     TenCall nm es ->
@@ -254,7 +251,7 @@ printIncludes = do
     line $ "#include <topi/nn/dense.h>"
     line $ "#include <topi/elemwise.h>"
     line $ "#include <topi/transform.h>"
-    line $ "#include <tvm/autodiff.h>"
+    -- line $ "#include <tvm/autodiff.h>"
     line $ ""
     line $
         "static inline tvm::Array<tvm::Expr> \
@@ -278,7 +275,7 @@ printIncludes = do
     line $ "tvm::IterVar htvm_axis_id(tvm::Tensor t, int i) { return t->op->root_iter_vars()[i]; }"
     line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Tensor t) { return t->shape; }"
     line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Array<tvm::Expr> t) { return t; }"
-    line $ "tvm::Array<tvm::Tensor> htvm_differentiate(tvm::Tensor t, tvm::Array<tvm::Tensor> a){ return tvm::ir::Differentiate(t,a)->result; }"
+    -- line $ "tvm::Array<tvm::Tensor> htvm_differentiate(tvm::Tensor t, tvm::Array<tvm::Tensor> a){ return tvm::ir::Differentiate(t,a)->result; }"
     line $ ""
     line $ "using topi::operator+;"
     line $ "using topi::operator-;"

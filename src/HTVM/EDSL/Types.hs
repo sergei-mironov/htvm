@@ -124,16 +124,20 @@ data TenFuncName =
   | TenLower
   deriving(Show,Read,Ord,Eq)
 
+class HasDefault a where
+  def :: a
+
 data TenAPI_Conv2dArgs = TenAPI_Conv2dArgs {
-    conv2d_input :: TenExpr
-  , conv2d_kernel :: TenExpr
-  , conv2d_stride :: (DimExpr,DimExpr) -- ^ FIXME: replace with Expr?  (here and below)
+    conv2d_stride :: (DimExpr,DimExpr) -- ^ FIXME: replace with Expr?  (here and below)
   , conv2d_padding ::(DimExpr,DimExpr)
   , conv2d_dilation :: (DimExpr,DimExpr)
   , conv2d_type :: Type
   , conv2d_name :: Text
   , conv2d_layout :: Layout
   } deriving(Read,Show,Eq,Ord)
+
+instance HasDefault TenAPI_Conv2dArgs where
+  def = TenAPI_Conv2dArgs (1,1) (1,1) (1,1) TypeFloat32 "conv2d" NCHW
 
 data TenAPI_PadArgs = TenAPI_PadArgs {
     pad_before :: [Expr]
@@ -142,10 +146,13 @@ data TenAPI_PadArgs = TenAPI_PadArgs {
   , pad_name :: Text
   } deriving(Read,Show,Eq,Ord)
 
+instance HasDefault TenAPI_PadArgs where
+  def = TenAPI_PadArgs [] [] 0 "pad"
+
 data TenAPI =
     TenAPI_Op Text {-^ Operation name -} [TenExpr] {-^ operands unary,binary,etc -}
   | TenAPI_ReduceAxis TenExpr
-  | TenAPI_Conv2d TenAPI_Conv2dArgs
+  | TenAPI_Conv2d TenExpr {- ^ input -} TenExpr {-^ kernel -} TenAPI_Conv2dArgs
   | TenAPI_Pad TenAPI_PadArgs
   | TenAPI_Schedule [TenExpr]
   | TenAPI_Parallel TenExpr {- ^ schedule -} TenExpr {- ^ inp -} TenExpr {- ^ IterVar -}

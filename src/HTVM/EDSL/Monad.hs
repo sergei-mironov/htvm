@@ -272,9 +272,6 @@ instance Sliceable Expr Integer Expr where
   (!) e i = ESlice e i
 
 
-class HasDefault a where
-  def :: a
-
 {-
  _____ ___  ____ ___   ____  _           _ _
 |_   _/ _ \|  _ \_ _| | __ )(_)_ __   __| (_)_ __   __ _ ___
@@ -328,29 +325,29 @@ instance Floating Tensor where
 esum :: (Expr,[Expr]) -> Expr
 esum (a,rs) = ecall ExprSum [a, ETuple rs]
 
-data Conv2dArgs = Conv2dArgs {
-    conv2d_stride :: (Integer,Integer)
-  , conv2d_padding ::(Integer,Integer)
-  , conv2d_dilation :: (Integer,Integer)
-  , conv2d_type :: Type
-  , conv2d_name :: Text
-  } deriving(Read,Show,Eq,Ord)
+-- data Conv2dArgs = Conv2dArgs {
+--     conv2d_stride :: (Integer,Integer)
+--   , conv2d_padding ::(Integer,Integer)
+--   , conv2d_dilation :: (Integer,Integer)
+--   , conv2d_type :: Type
+--   , conv2d_name :: Text
+--   } deriving(Read,Show,Eq,Ord)
 
-instance HasDefault Conv2dArgs where
-  def = Conv2dArgs (1,1) (1,1) (1,1) TypeFloat32 "conv2d"
+-- instance HasDefault Conv2dArgs where
+--   def = Conv2dArgs (1,1) (1,1) (1,1) TypeFloat32 "conv2d"
 
 conv2d_nchw :: Tensor -> Tensor -> TenAPI_Conv2dArgs -> Tensor
-conv2d_nchw (Tensor x) (Tensor k) ca = Tensor $ TenCall $ TenAPI_Conv2d ca
+conv2d_nchw (Tensor x) (Tensor k) ca = Tensor $ TenCall $ TenAPI_Conv2d x k ca
 
-data PadArgs = PadArgs {
-    pad_before :: [Expr]
-  , pad_after :: [Expr]
-  , pad_value :: Expr
-  , pad_name :: Text
-  } deriving(Read,Show,Eq,Ord)
+-- data PadArgs = PadArgs {
+--     pad_before :: [Expr]
+--   , pad_after :: [Expr]
+--   , pad_value :: Expr
+--   , pad_name :: Text
+--   } deriving(Read,Show,Eq,Ord)
 
-instance HasDefault PadArgs where
-  def = PadArgs [] [] 0 "pad"
+-- instance HasDefault PadArgs where
+--   def = PadArgs [] [] 0 "pad"
 
 pad :: Tensor -> TenAPI_PadArgs -> Tensor
 pad (Tensor x) pa = Tensor $ TenCall $ TenAPI_Pad pa
