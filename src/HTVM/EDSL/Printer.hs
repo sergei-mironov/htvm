@@ -183,7 +183,7 @@ printTenExpr te =
         TenAPI_Split te1 indices te2 ->
           "topi::split(" <> go te1 <> ", {" <> Text.intercalate "," (map tshow indices) <> "} ," <> tshow te2 <> ")"
         TenAPI_Differentiate inp ref ->
-          "tvm::differentiate(" <> go inp <> "," <> go ref <> ")"
+          "htvm_differentiate(" <> go inp <> "," <> go ref <> ")"
         TenAPI_BroadcastTo te {- ^ What -} sh {- ^ To which shape -} ->
           "topi::broadcast_to(" <> go te <> "," <> printShapeExpr sh <> ")"
         TenAPI_Flatten te ->
@@ -255,7 +255,7 @@ printIncludes = do
     line $ "#include <topi/nn/dense.h>"
     line $ "#include <topi/elemwise.h>"
     line $ "#include <topi/transform.h>"
-    -- line $ "#include <tvm/autodiff.h>"
+    line $ "#include <tvm/autodiff.h>"
     line $ ""
     line $
         "static inline tvm::Array<tvm::Expr> \
@@ -279,7 +279,7 @@ printIncludes = do
     line $ "tvm::IterVar htvm_axis_id(tvm::Tensor t, int i) { return t->op->root_iter_vars()[i]; }"
     line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Tensor t) { return t->shape; }"
     line $ "tvm::Array<tvm::Expr> htvm_shape(tvm::Array<tvm::Expr> t) { return t; }"
-    -- line $ "tvm::Array<tvm::Tensor> htvm_differentiate(tvm::Tensor t, tvm::Array<tvm::Tensor> a){ return tvm::ir::Differentiate(t,a)->result; }"
+    line $ "tvm::Array<tvm::Tensor> htvm_differentiate(tvm::Tensor t, tvm::Array<tvm::Tensor> a){ return tvm::ir::Differentiate(t,a)->result; }"
     line $ ""
     line $ "using topi::operator+;"
     line $ "using topi::operator-;"

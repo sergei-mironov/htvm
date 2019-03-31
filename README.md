@@ -80,8 +80,11 @@ _Installing dependencies_
      ```
      $ git clone https://github.com/grwlf/tvm
      $ cd tvm
-     $ git checkout origin/autodiff
-     .. follow up with the tvm build procedure
+     $ git branch autodiff origin/autodiff
+     $ git checkout autodiff
+     $ git submodule update --init --recursive
+
+     ... follow up with the tvm build procedure
      ```
 
 _Compiling the package_

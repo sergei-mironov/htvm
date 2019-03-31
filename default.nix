@@ -18,7 +18,11 @@ let
     isLibrary = false;
     isExecutable = true;
     libraryHaskellDepends = with haskellPackages; [
-      cabal-install ghc zlib haskdogs hasktags
+      cabal-install
+      ghc
+      zlib
+      haskdogs
+      hasktags
       recursion-schemes
       Earley
       containers
@@ -37,7 +41,11 @@ let
       deepseq
     ];
 
-    executableToolDepends = [ pkgs.clang_6 haskellPackages.c2hs pkgs.gnuplot ];
+    executableToolDepends = with pkgs; [
+      clang_6
+      haskellPackages.c2hs
+      gnuplot
+    ];
 
     license = stdenv.lib.licenses.gpl3;
 
