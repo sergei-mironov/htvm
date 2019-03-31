@@ -162,22 +162,26 @@ printTenExpr te =
         TenAPI_ReduceAxis te -> "tvm::reduce_axis(" <> go te <> ")"
         TenAPI_Conv2d x k TenAPI_Conv2dArgs{..} ->
           "topi::conv2d_nchw(" <> go x <> "," <> go k <> ")" -- FIXME: pass all args
-        TenAPI_Pad TenAPI_PadArgs{..} ->
-          "topi::pad(" <> "FIXME: pad args" <> ")"
+        TenAPI_Pad x TenAPI_PadArgs{..} ->
+          "topi::pad(" <> go x <> ",{"  <> Text.intercalate "," (map printExpr pad_before) <> "},{" <>
+                                           Text.intercalate "," (map printExpr pad_after) <> "}," <>
+                                           printExpr pad_value <> ",\"" <> pad_name <> "\")"
         TenAPI_Schedule te ->
           "htvm_create_schedule({" <> Text.intercalate "," (map go te) <> "})"
         TenAPI_Parallel s {- ^ schedule -} inp {- ^ inp -} iv {- ^ IterVar -} ->
-          error "parallel is not implemented"
+          "htvm_parallel("<> go s <> "," <> go inp <> "," <> go iv <> ")"
         TenAPI_AxisId te {- ^ tensor -} aid {- ^ Axis ID -} ->
           "htvm_axis_id(" <> go te <> "," <> tshow aid <> ")"
         TenAPI_MatMul a b ->
           "topi::matmul(" <> go a <> "," <> go b <> ")"
+        TenAPI_Elemwise opname {- ^ Op name -} [a] ->
+          "topi::"<>opname<>"(" <> go a <> ")"
         TenAPI_Elemwise opname {- ^ Op name -} [a,b] ->
           "topi::"<>opname<>"(" <> go a <> "," <> go b <> ")"
         TenAPI_Elemwise opname {- ^ Op name -} _ ->
-          error "TenAPI_Elemwise only supports 2- args operations"
+          error "TenAPI_Elemwise only supports 1- or 2- args operations"
         TenAPI_Split te1 indices te2 ->
-          "topi::split(" <> go te1 <> "," <> Text.intercalate "," (map tshow indices) <> "," <> tshow te2 <> ")"
+          "topi::split(" <> go te1 <> ", {" <> Text.intercalate "," (map tshow indices) <> "} ," <> tshow te2 <> ")"
         TenAPI_Differentiate inp ref ->
           "tvm::differentiate(" <> go inp <> "," <> go ref <> ")"
         TenAPI_BroadcastTo te {- ^ What -} sh {- ^ To which shape -} ->

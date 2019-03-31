@@ -523,6 +523,7 @@ main = defaultMain $
             c <- assign $ split a [1] 0
             return (c!0)
 
+    {-
     , testCase "Differentiate should work" $
 
         withTestLFunction (do
@@ -538,6 +539,7 @@ main = defaultMain $
             callTensorFunction c func [a]
             c_ <- peekTensor c
             assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
+    -}
 
 
     , testLModelProperty "BroadcastTo should work" (do

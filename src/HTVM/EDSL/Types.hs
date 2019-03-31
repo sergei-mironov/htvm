@@ -153,7 +153,7 @@ data TenAPI =
     TenAPI_Op Text {-^ Operation name -} [TenExpr] {-^ operands unary,binary,etc -}
   | TenAPI_ReduceAxis TenExpr
   | TenAPI_Conv2d TenExpr {- ^ input -} TenExpr {-^ kernel -} TenAPI_Conv2dArgs
-  | TenAPI_Pad TenAPI_PadArgs
+  | TenAPI_Pad TenExpr {-^ input -} TenAPI_PadArgs
   | TenAPI_Schedule [TenExpr]
   | TenAPI_Parallel TenExpr {- ^ schedule -} TenExpr {- ^ inp -} TenExpr {- ^ IterVar -}
   | TenAPI_AxisId TenExpr {- ^ tensor -} Integer {- ^ Axis ID -}

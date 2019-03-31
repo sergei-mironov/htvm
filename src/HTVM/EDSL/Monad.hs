@@ -350,7 +350,7 @@ conv2d_nchw (Tensor x) (Tensor k) ca = Tensor $ TenCall $ TenAPI_Conv2d x k ca
 --   def = PadArgs [] [] 0 "pad"
 
 pad :: Tensor -> TenAPI_PadArgs -> Tensor
-pad (Tensor x) pa = Tensor $ TenCall $ TenAPI_Pad pa
+pad (Tensor x) pa = Tensor $ TenCall $ TenAPI_Pad x pa
 
 matmul :: Tensor -> Tensor -> Tensor
 matmul (Tensor a) (Tensor b) = Tensor $ TenCall $ TenAPI_MatMul a b
