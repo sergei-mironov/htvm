@@ -34,10 +34,10 @@ import qualified HTVM.EDSL.Printer as CPP
 --   - @LIBRARY_PATH@, @LD_LIBRARY_PATH@ to contain paths to folder with TVM
 --     shared libraries
 --
-buildLModule :: CompileConfig -> FilePath -> LModule -> IO (ModuleLib LModule)
-buildLModule cc fp m = do
+buildLModule :: BackendType -> CompileConfig -> FilePath -> LModule -> IO (ModuleLib LModule)
+buildLModule backend_type cc fp m = do
   withTmpf "mgen" $ \fpath -> do
-    mgen <- compileModuleGen cc fpath (CPP.printLModuleGen m)
+    mgen <- compileModuleGen cc fpath (CPP.printLModuleGen backend_type m)
     asm <- runModuleGen mgen
     compileModule fp asm
 
@@ -59,5 +59,5 @@ showLoweredFuncCpp :: CompileConfig -> LoweredFunc -> IO Text
 showLoweredFuncCpp _ = prettyCpp . CPP.printTenExpr . lfuncDefExpr
 
 -- | Prints the prettified C++ source of the TVM module generator
-showLModuleGenCpp :: CompileConfig -> LModule -> IO Text
-showLModuleGenCpp _ = prettyCpp . mgen_src . CPP.printLModuleGen
+showLModuleGenCpp :: BackendType -> CompileConfig -> LModule -> IO Text
+showLModuleGenCpp backend_type _ = prettyCpp . mgs_src . CPP.printLModuleGen backend_type

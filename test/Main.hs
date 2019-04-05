@@ -199,16 +199,18 @@ assertEpsilonEqual msg eps a b = assertBool msg (epsilonEqual eps a b)
 ignoringIOErrors :: MC.MonadCatch m => m () -> m ()
 ignoringIOErrors ioe = ioe `MC.catch` (\e -> const (return ()) (e :: IOError))
 
-testLModelProperty :: String
+-- FIXME: tmpDir will not be removed in case of module build error
+testLModelProperty :: BackendType
+                   -> String
                    -> Stmt LoweredFunc
                    -> Gen ([TensorData], TensorData)
                    -> TestTree
-testLModelProperty desc mf gens =
+testLModelProperty backend_type desc mf gens =
   withResource (do
     tmpDir <- getTemporaryDirectory
     (nm,h) <- openTempFile tmpDir "htvm-test-module"
     hClose h
-    buildLModule defaultConfig nm $
+    buildLModule backend_type defaultConfig nm $
       stageStmt $ do
         f <- mf
         lmodul [f]
@@ -222,12 +224,12 @@ testLModelProperty desc mf gens =
         run act >>= flip lmodelProperty gens
   )
 
-withTestLModule :: Stmt LModule -> (ModuleLib LModule -> IO b) -> IO b
-withTestLModule mf act =
+withTestLModule :: BackendType -> Stmt LModule -> (ModuleLib LModule -> IO b) -> IO b
+withTestLModule backend_type mf act =
   withTmpf "htvm-test-module" $ \fp -> do
     {- traceM $ "file: " <> fp -}
     act =<< do
-      buildLModule defaultConfig fp $
+      buildLModule backend_type defaultConfig fp $
         stageStmt mf
 
 withSingleFuncLModule :: ModuleLib LModule -> (TVMFunction -> IO b) -> IO b
@@ -249,11 +251,13 @@ singleFuncLModule modlib =
       return f
     _ -> fail "withSingleFuncModule expects module with single function"
 
-withTestLFunction :: Stmt LoweredFunc -> (TVMFunction -> IO b) -> IO b
-withTestLFunction mf handler = withTestLModule (lmodul . (\x->[x]) =<< mf) $ flip withSingleFuncLModule handler
+withTestLFunction :: BackendType -> Stmt LoweredFunc -> (TVMFunction -> IO b) -> IO b
+withTestLFunction backend_type mf handler =
+  withTestLModule backend_type (lmodul . (\x->[x]) =<< mf) $ flip withSingleFuncLModule handler
 
+-- | FIXME: Check all the backends?
 shouldLCompile :: Stmt LoweredFunc -> IO ()
-shouldLCompile = flip withTestLFunction (const $ return ())
+shouldLCompile = flip (withTestLFunction BackendLLVM) (const $ return ())
 
 lmodelProperty :: ModuleLib LModule -> Gen ([TensorData],TensorData) -> PropertyM IO ()
 lmodelProperty modlib gen = do
@@ -300,10 +304,9 @@ gen2 :: forall e . (Storable e, Eq e, Show e, Arbitrary e, TensorDataTypeRepr e)
 gen2 go = forAll (genList2 @e) $ monadicIO . run . go
 
 
-main :: IO ()
-main = defaultMain $
-    testGroup "All" $ reverse [
-
+commonTests :: TestTree
+commonTests =
+  testGroup "Common" [
       testProperty "Uninitialized Tensor FFI should work" $
         let
           go :: forall e . TensorDataTypeRepr e => [Integer] -> IO ()
@@ -387,31 +390,6 @@ main = defaultMain $
           forAll (genAnyList3 t) $ \(AnyList3 l) ->
             property $
               epsilonEqual epsilon (concatMap (concatMap (map (fromRational . toRational))) l) (flattenReal l)
-
-    , let
-          dim0 = 3
-      in
-      testLModelProperty "Simple model should work (QC)" (do
-          s <- shapevar [fromInteger dim0]
-          lfunction "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-            compute s $ \e -> a![e] + b![e]
-          )
-          (do
-            a <- genFixedList1 @Float dim0
-            b <- genFixedList1 @Float dim0
-            return $ ([toTD a, toTD b], toTD $ map (uncurry (+)) (zip a b))
-          )
-
-
-    , testCase "Compiler (g++ -ltvm) should be available" $ do
-        withTmpf "htvm-compiler-test" $ \x -> do
-          _ <- compileModuleGen defaultConfig x (ModuleGenSrc undefined "int main() { return 0; }")
-          return ()
-
-    , testCase "Pretty-printer (clang-format) should be available" $ do
-        _ <- prettyCpp "int main() { return 0; }"
-        return ()
-
     , testCase "Function printer should work" $
         do
         dump <-
@@ -422,160 +400,198 @@ main = defaultMain $
                 compute s $ \e -> a![e] + b![e]
         assertBool "dump should contain 'produce' keyword" $ isInfixOf "produce" dump
 
-    , testCase "Simple model should work, withModule/withFunction case" $
-        let
-          dim0 = 4 :: Integer
-          fname = "vecadd"
-        in do
-        withTestLModule (do
-          s <- shapevar [fromInteger dim0]
-          lmodul . (\x->[x]) =<< do
-            lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-              compute s $ \e -> a![e] + b![e]
-          ) $
-          \(ModuleLib p _) -> do
-            withModule p $ \hmod -> do
-            withFunction fname hmod $ \fmod -> do
-              a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-              b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
-              c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
-              callTensorFunction c fmod [a,b]
-              assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
+  , testCase "Compiler (g++ -ltvm) should be available" $ do
+      withTmpf "htvm-compiler-test" $ \x -> do
+        _ <- compileModuleGen defaultConfig x (ModuleGenSrc undefined undefined "int main() { return 0; }")
+        return ()
 
-    , testCase "Simple model should work, loadModule/loadFunction case" $
-        let
-          dim0 = 4 :: Integer
-          fname = "vecadd"
-        in do
-        withTestLModule (do
-          s <- shapevar [fromInteger dim0]
-          lmodul . (\x->[x]) =<< do
-            lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
-              compute s $ \e -> a![e] + b![e]
-          ) $
-          \(ModuleLib mod_path _) -> do
-            m <- loadModule mod_path
-            f <- loadFunction "vecadd" m
+  , testCase "Pretty-printer (clang-format) should be available" $ do
+      _ <- prettyCpp "int main() { return 0; }"
+      return ()
+
+  , testCase "Reduce axis operation should compile" $
+
+      shouldLCompile $ do
+        s <- shapevar [4]
+        lfunction "reduce" [("A",float32,s)] $ \[a] -> do
+          IterVar r <- reduce_axis (0,3)
+          compute ShapeScalar $ \(_::Expr) -> esum (a![r], [r])
+
+  , testCase "Conv2d operation should compile" $
+
+      shouldLCompile $ do
+        sa <- shapevar [1,1,10,10]
+        sk <- shapevar [1,1,3,3]
+        lfunction "reduce" [("A",float32,sa), ("k",float32,sk)] $ \[a,k] -> do
+          return $ conv2d_nchw a k def
+
+  , testCase "Pad operation should compile" $
+
+      shouldLCompile $ do
+        sa <- shapevar [1,1,10,10]
+        lfunction "reduce" [("A",float32,sa) ] $ \[a] -> do
+          return $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
+
+  , testCase "Parallel schedule should compile" $
+
+      shouldLCompile $ do
+        sa <- shapevar [1,1,10,10]
+        lfunction "reduce" [("A",float32,sa) ] $ \[a] -> do
+          c <- assign $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
+          r <- axisId c 0
+          s <- assign $ schedule [c]
+          parallel s c r
+          return c
+
+  , testCase "Split primitive should compile" $
+
+      shouldLCompile $ do
+        sa <- shapevar [2,4]
+        lfunction "reduce" [("A", float32,sa) ] $ \[a] -> do
+          c <- assign $ split a [1] 0
+          return (c!0)
+
+  {- FIXME: test real matmul and bias additionn -}
+  , testCase "Dense should work" $ do
+      shouldLCompile $ do
+        lfunction "f" [("x", float32, shp [4,4])
+                     ,("w", float32, shp [4,4])
+                     ,("b", float32, shp [4])] $ \[x,w,b] -> do
+          c <- assign $ dense x w b
+          return c
+
+  ]
+
+
+backendTests :: BackendType -> TestTree
+backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <> ")") $ [
+    let
+        dim0 = 3
+    in
+    testLModelProperty backend_type "Simple model should work (QC)" (do
+        s <- shapevar [fromInteger dim0]
+        lfunction "vecadd" [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+          compute s $ \e -> a![e] + b![e]
+        )
+        (do
+          a <- genFixedList1 @Float dim0
+          b <- genFixedList1 @Float dim0
+          return $ ([toTD a, toTD b], toTD $ map (uncurry (+)) (zip a b))
+        )
+
+  , testCase "Simple model should work, withModule/withFunction case" $
+      let
+        dim0 = 4 :: Integer
+        fname = "vecadd"
+      in do
+      withTestLModule backend_type (do
+        s <- shapevar [fromInteger dim0]
+        lmodul . (\x->[x]) =<< do
+          lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+            compute s $ \e -> a![e] + b![e]
+        ) $
+        \(ModuleLib p _) -> do
+          withModule p $ \hmod -> do
+          withFunction fname hmod $ \fmod -> do
             a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
             b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
             c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
-            callTensorFunction c f [a,b]
+            callTensorFunction c fmod [a,b]
             assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
-    , testCase "Reduce axis operation should compile" $
+  , testCase "Simple model should work, loadModule/loadFunction case" $
+      let
+        dim0 = 4 :: Integer
+        fname = "vecadd"
+      in do
+      withTestLModule backend_type (do
+        s <- shapevar [fromInteger dim0]
+        lmodul . (\x->[x]) =<< do
+          lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
+            compute s $ \e -> a![e] + b![e]
+        ) $
+        \(ModuleLib mod_path _) -> do
+          m <- loadModule mod_path
+          f <- loadFunction "vecadd" m
+          a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
+          b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
+          c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
+          callTensorFunction c f [a,b]
+          assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
-        shouldLCompile $ do
-          s <- shapevar [4]
-          lfunction "reduce" [("A",float32,s)] $ \[a] -> do
-            IterVar r <- reduce_axis (0,3)
-            compute ShapeScalar $ \(_::Expr) -> esum (a![r], [r])
+  , testCase "Sigmoid primitive should work" $
 
-    , testCase "Conv2d operation should compile" $
-
-        shouldLCompile $ do
-          sa <- shapevar [1,1,10,10]
-          sk <- shapevar [1,1,3,3]
-          lfunction "reduce" [("A",float32,sa), ("k",float32,sk)] $ \[a,k] -> do
-            return $ conv2d_nchw a k def
-
-    , testCase "Pad operation should compile" $
-
-        shouldLCompile $ do
-          sa <- shapevar [1,1,10,10]
-          lfunction "reduce" [("A",float32,sa) ] $ \[a] -> do
-            return $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
-
-    , testCase "Parallel schedule should compile" $
-
-        shouldLCompile $ do
-          sa <- shapevar [1,1,10,10]
-          lfunction "reduce" [("A",float32,sa) ] $ \[a] -> do
-            c <- assign $ pad a def{pad_value=33, pad_before=[2,2,2,2]}
-            r <- axisId c 0
-            s <- assign $ schedule [c]
-            parallel s c r
-            return c
-
-    , testCase "Sigmoid primitive should work" $
-
-        withTestLFunction (do
-          s <- shapevar [4]
-          lfunction "sigmoid" [("A",float32,s)] $ \[a] -> do
-            c <- assign $ sigmoid a
-            return c
-          ) $
-          \fmod ->
-            let
-              inp = [1,2,3,4] :: [Float]
-              out = map (\x -> 1.0 / (1.0 + exp (- x))) inp
-            in do
-            a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-            c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [4] KDLCPU 0
-            callTensorFunction c fmod [a]
-            c_ <- peekTensor c
-            assertEpsilonEqual "Simple model result" epsilon out c_
-
-    , testCase "Split primitive should compile" $
-
-        shouldLCompile $ do
-          sa <- shapevar [2,4]
-          lfunction "reduce" [("A", float32,sa) ] $ \[a] -> do
-            c <- assign $ split a [1] 0
-            return (c!0)
-
-    , testCase "Differentiate should work" $
-
-        withTestLFunction (do
-          sa <- shapevar [1]
-          lfunction "difftest" [("A", float32,sa) ] $ \[a] -> do
-            c <- compute sa $ \i -> (a![i])*(a![i])
-            dc <- assign $ differentiate c [a]
-            return (dc!0)
-          ) $
-          \func -> do
-            a <- newTensor @[Float] [3.0] KDLCPU 0
-            c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [1,1] KDLCPU 0
-            callTensorFunction c func [a]
-            c_ <- peekTensor c
-            assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
-
-
-    , testLModelProperty "BroadcastTo should work" (do
-        lfunction "reduce" [("A", float32, shp [3]) ] $ \[a] -> do
-          c <- assign $ broadcast_to a (shp [1,1,3])
+      withTestLFunction backend_type (do
+        s <- shapevar [4]
+        lfunction "sigmoid" [("A",float32,s)] $ \[a] -> do
+          c <- assign $ sigmoid a
           return c
-        )
-        (do
-          a <- genFixedList1 @Float 3
-          return ([toTD a], toTD [[a]])
-        )
+        ) $
+        \fmod ->
+          let
+            inp = [1,2,3,4] :: [Float]
+            out = map (\x -> 1.0 / (1.0 + exp (- x))) inp
+          in do
+          a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
+          c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [4] KDLCPU 0
+          callTensorFunction c fmod [a]
+          c_ <- peekTensor c
+          assertEpsilonEqual "Simple model result" epsilon out c_
 
-    {- FIXME: implement more sophisticated test -}
-    , testLModelProperty "Flatten should work" (do
-        lfunction "f" [("a", float32, shp [2,4])] $ \[a] -> do
-          c <- assign $ flatten a
-          return c
-        )
-        (do
-          a <- genFixedList2 @Float 2 4
-          return ([toTD a], toTD a)
-        )
+  , testCase "Differentiate should work" $
 
-    {- FIXME: test real matmul and bias additionn -}
-    , testCase "Dense should work" $ do
-        shouldLCompile $ do
-          lfunction "f" [("x", float32, shp [4,4])
-                       ,("w", float32, shp [4,4])
-                       ,("b", float32, shp [4])] $ \[x,w,b] -> do
-            c <- assign $ dense x w b
-            return c
+      withTestLFunction backend_type (do
+        sa <- shapevar [1]
+        lfunction "difftest" [("A", float32,sa) ] $ \[a] -> do
+          c <- compute sa $ \i -> (a![i])*(a![i])
+          dc <- assign $ differentiate c [a]
+          return (dc!0)
+        ) $
+        \func -> do
+          a <- newTensor @[Float] [3.0] KDLCPU 0
+          c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [1,1] KDLCPU 0
+          callTensorFunction c func [a]
+          c_ <- peekTensor c
+          assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
 
-    , testCase "LModule test case" $ do
-        flip withTestLModule (const $ return ()) $ do
-          a <- assign $ placeholder "a" float32 (shp [4,4])
-          b <- assign $ placeholder "b" float32 (shp [4,4])
-          c <- assign $ a + b
-          l <- lower "vecadd" (schedule [c]) [a,b,c]
-          lmodul [l]
+
+  , testLModelProperty backend_type "BroadcastTo should work" (do
+      lfunction "reduce" [("A", float32, shp [3]) ] $ \[a] -> do
+        c <- assign $ broadcast_to a (shp [1,1,3])
+        return c
+      )
+      (do
+        a <- genFixedList1 @Float 3
+        return ([toTD a], toTD [[a]])
+      )
+
+  {- FIXME: implement more sophisticated test -}
+  , testLModelProperty backend_type "Flatten should work" (do
+      lfunction "f" [("a", float32, shp [2,4])] $ \[a] -> do
+        c <- assign $ flatten a
+        return c
+      )
+      (do
+        a <- genFixedList2 @Float 2 4
+        return ([toTD a], toTD a)
+      )
+
+  , testCase "LModule test case" $ do
+      flip (withTestLModule backend_type) (const $ return ()) $ do
+        a <- assign $ placeholder "a" float32 (shp [4,4])
+        b <- assign $ placeholder "b" float32 (shp [4,4])
+        c <- assign $ a + b
+        l <- lower "vecadd" (schedule [c]) [a,b,c]
+        lmodul [l]
+  ]
+
+
+main :: IO ()
+main = defaultMain $ do
+  testGroup "All" $ reverse [
+      commonTests
+    , backendTests BackendLLVM
+    -- , backendTests BackendCUDA
     ]
+
 

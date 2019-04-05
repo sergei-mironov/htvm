@@ -1,6 +1,10 @@
 Log
 ===
 
+#### 06.04.2019
+ * Refactor intrincic API, encode it as a single datatype
+ * Implement draft CUDA codegen
+
 #### 16.12.2018
  * Add ForeingPtr-based Module and function API
  * Provide type and shape checks for tensor FFI

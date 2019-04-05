@@ -97,25 +97,6 @@ printType t =
     TypeInt32 ->  "tvm::Int(32)"
     TypeTensor _ _ -> "tvm::Tensor()"
 
--- printTenFuncName :: TenFuncName -> Text
--- printTenFuncName fn =
---   case fn of
---     TenOp op -> op
---     TenReduceAxis -> "tvm::reduce_axis"
---     TenConv2d_NCHW -> "topi::conv2d_nchw"
---     TenPad -> "topi::pad"
---     TenSchedule -> "htvm_create_schedule"
---     TenParallel -> "htvm_parallel"
---     TenAxisId -> "htvm_axis_id"
---     TenMatMul -> "topi::matmul"
---     TenElemwise x -> "topi::"<>x
---     TenSplit -> "topi::split"
---     TenDifferentiate -> "htvm_differentiate"
---     TenBroadcastTo -> "topi::broadcast_to"
---     TenFlatten -> "topi::nn::flatten"
---     TenDense -> "topi::nn::dense"
---     TenLower -> "tvm::lower"
-
 printLayout :: Layout -> Text
 printLayout l =
   case l of
@@ -193,49 +174,9 @@ printTenExpr te =
         TenAPI_Lower fname sched plh ->
           "tvm::lower(" <> go sched <> ", {" <> Text.intercalate "," (map go plh) <> "},\"" <> fname <> "\", {}, tvm::build_config())"
 
-{-
-    TenCall nm es ->
-      let
-        parg arg =
-          case arg of
-            TenArg e -> go e
-            StrArg str -> "\"" <> str <> "\""
-            TypeArg t -> printType t
-            IntArg i -> tshow i
-            IntsArg is -> "{" <> (Text.intercalate "," (map tshow is)) <> "}"
-            LayoutArg l -> printLayout l
-            ShapeArg se -> printShapeExpr se
-
-        call args = printTenFuncName nm <> "(" <> Text.intercalate ", " args <> ")"
-      in
-      case nm of
-        TenOp _
-          | (length es == 2) -> parg (es!!0) <> printTenFuncName nm <> parg (es!!1)
-          | (length es == 1) -> printTenFuncName nm <> parg (es!!0)
-        TenLower ->
-          call ((map parg es) <> [
-              "std::unordered_map<tvm::Tensor, tvm::Buffer>()" -- binds
-            , "tvm::build_config()"                            -- config
-            ])
-        _ ->
-          call (map parg es)
--}
-
 line :: (MonadWriter Text m) => Text -> m ()
 line x = tell (x <> "\n")
 
-
-printLModule:: LModule -> Text
-printLModule (LModule _ te) =
-  execWriter $ do
-    line $ "({"
-    line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"
-    line $ "tvm::BuildConfig config = tvm::build_config();"
-    line $ "auto target = tvm::Target::create(\"llvm\"); "
-    line $ "auto target_host = tvm::Target::create(\"llvm\");"
-    line $ "tvm::runtime::Module mod = tvm::build(funcs, target, target_host, config);"
-    line $ "mod;"
-    line $ "})"
 
 printIncludes :: Writer Text ()
 printIncludes = do
@@ -287,13 +228,25 @@ printIncludes = do
     line $ "using topi::operator/;"
     line $ "using topi::operator%;"
 
-printLModuleGen :: LModule -> (ModuleGenSrc LModule)
-printLModuleGen mod =
-  ModuleGenSrc mod $ execWriter $ do
+printLModuleGen :: BackendType -> LModule -> (ModuleGenSrc LModule)
+printLModuleGen backend_type mod@(LModule _ te) =
+  ModuleGenSrc mod backend_type $ execWriter $ do
     printIncludes
     line $ "int main()"
     line $ "{"
-    line $ "auto mod = " <> printLModule mod <> ";"
+    line $ "auto mod = ({"
+    line $ "tvm::Array<tvm::LoweredFunc> funcs = ({" <> printTenExpr te <> "; });"
+    line $ "tvm::BuildConfig config = tvm::build_config();"
+    case backend_type of
+      BackendLLVM -> do
+        line $ "auto target = tvm::target::llvm();"
+        line $ "auto target_host = tvm::target::llvm();"
+      BackendCUDA -> do
+        line $ "auto target = tvm::target::cuda(); "
+        line $ "auto target_host = tvm::target::llvm();"
+    line $ "tvm::runtime::Module mod = tvm::build(funcs, target, target_host, config);"
+    line $ "mod;"
+    line $ "});"
     line $ "std::cout << mod->GetSource(\"asm\") << std::endl;"
     line $ "}"
 

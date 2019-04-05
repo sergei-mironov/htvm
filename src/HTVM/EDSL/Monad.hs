@@ -152,6 +152,7 @@ lfunction nam plhs fbody = do
   res <- fbody ts
   lower nam (schedule [res]) (ts<>[res])
 
+-- | Lowered module
 data LModule = LModule { lmodFuncNames :: [Text], lmodExpr :: TenExpr }
   deriving(Read,Show,Eq,Ord)
 
