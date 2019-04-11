@@ -49,12 +49,12 @@ library
   exposed-modules:
       HTVM.EDSL.Types
     , HTVM.EDSL.Monad
-    , HTVM.EDSL.Printer
-    , HTVM.EDSL.Build
     , HTVM.EDSL
-    , HTVM.Runtime.FFI
-    , HTVM.Runtime.TVMData
-    , HTVM.Runtime
+    , HTVM.TVMRuntime.FFI
+    , HTVM.TVMRuntime.TVMData
+    , HTVM.TVMRuntime.PrinterCPP
+    , HTVM.TVMRuntime.Build
+    , HTVM.TVMRuntime
     , HTVM.Prelude
     , HTVM
 

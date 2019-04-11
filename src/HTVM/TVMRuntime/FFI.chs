@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
-module HTVM.Runtime.FFI where
+module HTVM.TVMRuntime.FFI where
 
 import qualified Data.Array as Array
 

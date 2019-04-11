@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
-module HTVM.EDSL.Printer where
+module HTVM.TVMRuntime.PrinterCPP where
 
 import qualified Data.Text as Text
 
@@ -12,7 +12,6 @@ import Data.Text(Text)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
-import HTVM.EDSL.Monad
 
 printDimExpr :: DimExpr -> Text
 printDimExpr se =

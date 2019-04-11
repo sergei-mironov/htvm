@@ -257,3 +257,6 @@ data Assembly a = Assembly {
 data ModuleLib a = ModuleLib FilePath a
   deriving(Show,Read,Eq,Ord)
 
+-- | Lowered module
+data LModule = LModule { lmodFuncNames :: [Text], lmodExpr :: TenExpr }
+  deriving(Read,Show,Eq,Ord)

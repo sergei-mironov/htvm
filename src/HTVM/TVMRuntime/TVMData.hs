@@ -11,9 +11,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module HTVM.Runtime.TVMData where
+module HTVM.TVMRuntime.TVMData where
 
 import qualified Data.Array as Array
+import qualified Data.Vector.Unboxed as VU
 
 import Control.Exception (throwIO)
 import Control.Monad (when, forM, forM_)
@@ -28,11 +29,10 @@ import Foreign (newForeignPtr, Ptr, Storable(..), alloca,
                 allocaArray, peek, poke, peekArray, pokeArray,
                 castPtr, advancePtr, malloc, mallocArray,
                 withForeignPtr, Storable(..), withArray)
-import HTVM.Prelude
-import HTVM.Runtime.FFI
 import System.IO.Unsafe (unsafePerformIO)
 
-import qualified Data.Vector.Unboxed as VU
+import HTVM.Prelude
+import HTVM.TVMRuntime.FFI
 
 -- | Utilitary class to convert tuples to lists
 class TupleList i a | i -> a where

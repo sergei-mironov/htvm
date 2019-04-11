@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module HTVM.EDSL.Build where
+module HTVM.TVMRuntime.Build where
 
 import Control.Monad(when)
 import Data.Text(Text)
@@ -12,7 +12,7 @@ import Prelude hiding(writeFile)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
-import HTVM.EDSL.Printer
+import HTVM.TVMRuntime.PrinterCPP
 
 import qualified Data.Text as Text
 

@@ -16,6 +16,7 @@ import Data.Text(Text)
 import HTVM
 import MNIST
 
+printFunction :: LoweredFunc -> IO ()
 printFunction f =
   Text.putStrLn =<< withLineNumbers <$> showLoweredFuncCpp defaultConfig f
 
@@ -40,7 +41,9 @@ demo1 = do
 {-
 model :: IO (ModuleLib LModule)
 model = do
-  stageBuildFunction defaultConfig "model.so" $ do
+  buildLModule CPU defaultConfig "demo1.so" demo1 >>= do
+  withLModule
+
     sa <- shapevar [1]
     function "difftest" [("A",float32,sa) ] $ \[a] -> do
       c <- compute sa $ \i -> (a![i])*(a![i])
