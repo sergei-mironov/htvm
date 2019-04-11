@@ -54,6 +54,7 @@ library
     , HTVM.TVMRuntime.TVMData
     , HTVM.TVMRuntime.PrinterCPP
     , HTVM.TVMRuntime.Build
+    , HTVM.TVMRuntime.Types
     , HTVM.TVMRuntime
     , HTVM.Prelude
     , HTVM

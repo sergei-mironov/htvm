@@ -1,6 +1,10 @@
 Log
 ===
 
+#### 11.04.2019
+ * Move TVM-related data to TVMRuntime. This should allow us to have different
+   runtimes for single EDSL, just in case.
+
 #### 06.04.2019
  * Refactor intrincic API, encode it as a single datatype
  * Implement draft CUDA codegen

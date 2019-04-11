@@ -1,5 +1,6 @@
 module HTVM.TVMRuntime (
     module HTVM.TVMRuntime.FFI
+  , module HTVM.TVMRuntime.Types
   , module HTVM.TVMRuntime.TVMData
   , module HTVM.TVMRuntime.Build
   , module HTVM.TVMRuntime.PrinterCPP
@@ -7,11 +8,6 @@ module HTVM.TVMRuntime (
   , module Data.Int
   , module Data.Word
   ) where
-
-import HTVM.TVMRuntime.FFI
-import HTVM.TVMRuntime.TVMData
-import HTVM.TVMRuntime.PrinterCPP
-import HTVM.TVMRuntime.Build
 
 import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Text(Text)
@@ -24,6 +20,13 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import HTVM.Prelude
 import HTVM.EDSL
+
+import HTVM.TVMRuntime.FFI
+import HTVM.TVMRuntime.TVMData
+import HTVM.TVMRuntime.PrinterCPP
+import HTVM.TVMRuntime.Build
+import HTVM.TVMRuntime.Types
+
 import qualified HTVM.TVMRuntime.PrinterCPP as CPP
 
 -- | Build TVM module @modname@ from EDSL definition.

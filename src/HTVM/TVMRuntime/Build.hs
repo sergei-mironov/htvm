@@ -12,6 +12,7 @@ import Prelude hiding(writeFile)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
+import HTVM.TVMRuntime.Types
 import HTVM.TVMRuntime.PrinterCPP
 
 import qualified Data.Text as Text

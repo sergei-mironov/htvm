@@ -12,6 +12,7 @@ import Data.Text(Text)
 
 import HTVM.Prelude
 import HTVM.EDSL.Types
+import HTVM.TVMRuntime.Types
 
 printDimExpr :: DimExpr -> Text
 printDimExpr se =
