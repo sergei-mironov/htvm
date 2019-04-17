@@ -1,3 +1,5 @@
+{-# LANGUAGE RankNTypes #-}
+
 module HTVM.TVMRuntime (
     module HTVM.TVMRuntime.FFI
   , module HTVM.TVMRuntime.Types
@@ -50,7 +52,30 @@ buildLModule backend_type cc fp m = do
     asm <- runModuleGen mgen
     compileModule fp asm
 
--- | Compile and run IR code printer of the current function
+data ModuleHandle = ModuleHandle {
+    mod_lib :: ModuleLib LModule
+  , mod_handle :: TVMModule
+  , mod_fhandles :: [TVMFunction]
+  }
+
+loadModuleByName :: FilePath -> [Text] -> IO ModuleHandle
+loadModuleByName module_filepath func_names = undefined
+
+loadModuleByInfo :: ModuleLib LModule -> IO ModuleHandle
+loadModuleByInfo (ModuleLib fp lmod) = loadModuleByName fp (lmodFuncNames lmod)
+
+
+data Tensor = Tensor {
+  tensor_data :: forall a . TVMData a => a
+  }
+
+callModule :: ModuleHandle -> Text -> [Tensor] -> IO Tensor
+callModule = undefined
+
+
+
+-- | Print the IR of the lowered function. In order to do it, compile and run IR
+-- printer program
 -- FIXME: It takes too long to execute this function.
 showLFunctionIR :: CompileConfig -> LoweredFunc -> IO Text
 showLFunctionIR cc m@(LoweredFunc _ fdef _) = do
@@ -70,3 +95,4 @@ showLoweredFuncCpp _ = prettyCpp . CPP.printTenExpr . lfuncDefExpr
 -- | Prints the prettified C++ source of the TVM module generator
 showLModuleGenCpp :: BackendType -> CompileConfig -> LModule -> IO Text
 showLModuleGenCpp backend_type _ = prettyCpp . mgs_src . CPP.printLModuleGen backend_type
+
