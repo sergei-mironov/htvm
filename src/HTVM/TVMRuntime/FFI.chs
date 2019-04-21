@@ -421,10 +421,10 @@ withFunction funcname mod func =
 --
 -- TODO: Process pvretcode
 -- FIXME: Allow arbitrary number of output tensors
-callTensorFunction :: TVMTensor -> TVMFunction -> [TVMTensor] -> IO ()
-callTensorFunction ret fun args =
+callTensorFunction :: TVMFunction -> [TVMTensor] -> IO ()
+callTensorFunction fun args =
   let
-    nargs = length args + 1 {- Result is also counts -}
+    nargs = length args
     clen = toCInt nargs
   in do
   alloca $ \pvret -> do
@@ -432,10 +432,8 @@ callTensorFunction ret fun args =
   allocaArray nargs $ \pvargs -> do
   allocaArray nargs $ \pvargcodes -> do
   withForeignPtr fun $ \hfun -> do
-    forM_ ((args<>[ret])`zip`[0..nargs-1]) $ \(farg,off) -> do
-      case off < length args of
-        True -> setTensor farg (advancePtr pvargs off) (advancePtr pvargcodes off)
-        False -> setTensor ret (advancePtr pvargs off) (advancePtr pvargcodes off)
+    forM_ (args`zip`[0..]) $ \(farg,off) -> do
+      setTensor farg (advancePtr pvargs off) (advancePtr pvargcodes off)
     r <- tvmFuncCall hfun pvargs pvargcodes clen pvret pvretcode
     case r of
       0 -> do
