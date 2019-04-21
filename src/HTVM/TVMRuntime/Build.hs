@@ -73,12 +73,12 @@ compileProgram cc fp src@(ProgramSrc code) = do
 compileModuleGen :: CompileConfig -> FilePath -> ModuleGenSrc a -> IO (ModuleGen a)
 compileModuleGen cc fp mgs@(ModuleGenSrc mod backend_type code) = do
   ProgramBin fp <- compileProgram cc fp (ProgramSrc code)
-  return (ModuleGen fp mgs)
+  return (ModuleGen fp backend_type mgs)
 
 -- | Execute the Module generator, return the Assembly string, suitable for
 -- `compileModule`
 runModuleGen :: ModuleGen a -> IO (Assembly a)
-runModuleGen (ModuleGen fp mgs) =
+runModuleGen (ModuleGen fp _ mgs) =
   let
     exec_fp = if isAbsolute fp then fp else "./" <> fp
   in do

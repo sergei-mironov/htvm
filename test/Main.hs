@@ -246,8 +246,8 @@ singleFuncLModule :: ModuleLib LModule -> IO TVMFunction
 singleFuncLModule modlib =
   case modlib of
     (ModuleLib modpath (LModule [nm] _)) -> do
-      m <- loadModule modpath
-      f <- loadFunction nm m
+      m <- loadTVMModule modpath
+      f <- loadTVMFunction nm m
       return f
     _ -> fail "withSingleFuncModule expects module with single function"
 
@@ -307,7 +307,7 @@ gen2 go = forAll (genList2 @e) $ monadicIO . run . go
 commonTests :: TestTree
 commonTests =
   testGroup "Common" [
-      testProperty "Uninitialized Tensor FFI should work" $
+      testProperty "Uninitialized TensorDecl FFI should work" $
         let
           go :: forall e . TensorDataTypeRepr e => [Integer] -> IO ()
           go sh = do
@@ -327,7 +327,7 @@ commonTests =
           TD_Float32L1 -> (gen @Float)
           TD_Float64L1 -> (gen @Double)
 
-    , testProperty "Initiallized Tensor FFI should work" $
+    , testProperty "Initiallized TensorDecl FFI should work" $
         forAll genTensorDataType $ \t ->
           forAnyTensorLike t $ \l ->
             monadicIO $ run $ do
@@ -499,7 +499,7 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
             callTensorFunction c fmod [a,b]
             assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
-  , testCase "Simple model should work, loadModule/loadFunction case" $
+  , testCase "Simple model should work, loadTVMModule/loadTVMFunction case" $
       let
         dim0 = 4 :: Integer
         fname = "vecadd"
@@ -511,8 +511,8 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
             compute s $ \e -> a![e] + b![e]
         ) $
         \(ModuleLib mod_path _) -> do
-          m <- loadModule mod_path
-          f <- loadFunction "vecadd" m
+          m <- loadTVMModule mod_path
+          f <- loadTVMFunction "vecadd" m
           a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
           b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
           c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0

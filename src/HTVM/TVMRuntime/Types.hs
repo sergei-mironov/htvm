@@ -29,6 +29,7 @@ data ProgramBin = ProgramBin FilePath
 -- represents AST source of the module.
 data ModuleGen a = ModuleGen {
     mg_filePath :: FilePath
+  , mg_backend :: BackendType
   , mg_src :: ModuleGenSrc a
   } deriving(Show,Read,Eq,Ord)
 

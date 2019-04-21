@@ -14,7 +14,9 @@ module HTVM.TVMRuntime (
 import Data.Int (Int8,Int16,Int32,Int64)
 import Data.Text(Text)
 import Data.Word (Word8,Word16,Word32,Word64)
+import Data.Map (Map(..))
 import Control.Monad.Trans
+import Control.Monad (forM)
 import System.Process(readCreateProcess,readProcessWithExitCode,shell)
 import System.FilePath(isAbsolute)
 import System.Exit(ExitCode(..))
@@ -29,7 +31,9 @@ import HTVM.TVMRuntime.PrinterCPP
 import HTVM.TVMRuntime.Build
 import HTVM.TVMRuntime.Types
 
+import qualified HTVM.TVMRuntime.FFI as TVM
 import qualified HTVM.TVMRuntime.PrinterCPP as CPP
+import qualified Data.Map as Map
 
 -- | Build TVM module @modname@ from EDSL definition.
 -- This function executes @g++@ compiler and @clang-format@ pretty-printer. The
@@ -52,25 +56,31 @@ buildLModule backend_type cc fp m = do
     asm <- runModuleGen mgen
     compileModule fp asm
 
+-- FIXME: what about renaming TVM Module -> TVM Op?
 data ModuleHandle = ModuleHandle {
-    mod_lib :: ModuleLib LModule
-  , mod_handle :: TVMModule
-  , mod_fhandles :: [TVMFunction]
+    mh_lib :: ModuleLib LModule -- ^ ModuleLib LModule
+  , mh_handle :: TVMModule -- ^ Module handle itself
+  , mh_fhandles :: Map Text TVMFunction -- ^ Function handles
   }
 
-loadModuleByName :: FilePath -> [Text] -> IO ModuleHandle
-loadModuleByName module_filepath func_names = undefined
-
-loadModuleByInfo :: ModuleLib LModule -> IO ModuleHandle
-loadModuleByInfo (ModuleLib fp lmod) = loadModuleByName fp (lmodFuncNames lmod)
+loadModule :: ModuleLib LModule -> IO ModuleHandle
+loadModule ml@(ModuleLib module_filepath (LModule func_names _)) = do
+  mh <- loadTVMModule module_filepath
+  fhs <- Map.unions <$> do
+    forM func_names $ \fn -> do
+      Map.singleton fn <$> loadTVMFunction fn mh
+  return $ ModuleHandle ml mh fhs
 
 
 data Tensor = Tensor {
-  tensor_data :: forall a . TVMData a => a
+  tensor_data :: forall a . (Show a, TVMData a) => a
   }
 
-callModule :: ModuleHandle -> Text -> [Tensor] -> IO Tensor
-callModule = undefined
+-- | FIXME: Declare the way of handling errors
+callModule :: ModuleHandle -> Text -> [Tensor] -> IO ()
+callModule mh fname (ret:args) = undefined
+  -- tert <- fromTD
+  -- callTensorFunction 
 
 
 

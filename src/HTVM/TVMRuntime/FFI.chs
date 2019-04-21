@@ -357,8 +357,8 @@ tvmGetLastError = peekCAString =<< tvmGetLastError_FFI
 -- | Load module named @modname@. Module will be freed when Haskell runtime
 -- decide so. It is important to keep the `TVMModule` with every `TVMFunction`
 -- to prevent the runtime from garbage collecting the module early.
-loadModule :: FilePath -> IO TVMModule
-loadModule modname = do
+loadTVMModule :: FilePath -> IO TVMModule
+loadTVMModule modname = do
   alloca $ \pmod -> do
   withCString modname $ \cmodname -> do
   withCString "so" $ \so -> do
@@ -388,8 +388,8 @@ withModule modname func =
 
 -- | Load function named @funcname@ from module @mod@. Function will be
 -- freed when Haskell runtime decide so.
-loadFunction :: Text -> TVMModule -> IO TVMFunction
-loadFunction funcname mod = do
+loadTVMFunction :: Text -> TVMModule -> IO TVMFunction
+loadTVMFunction funcname mod = do
   alloca $ \pfunc -> do
   withCString (tunpack funcname) $ \cfuncname -> do
   withForeignPtr mod $ \hmod -> do
