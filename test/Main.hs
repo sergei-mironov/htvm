@@ -266,7 +266,7 @@ lmodelProperty modlib gen = do
     targs <- forM args $ \t -> run $ newTensor t KDLCPU 0
     tact <- run $ newEmptyTensor (toTvmDataType $ tensorDataType @Float) (tvmIShape expected) KDLCPU 0
     -- run $ traceM "READY TO CALL"
-    run $ callTensorFunction func (targs<>[tact])
+    run $ callTVMFunction func (targs<>[tact])
     (actual :: TensorData) <- run $ peekTensor tact
     assert $ (epsilonEqual epsilon actual expected)
 
@@ -281,7 +281,7 @@ testFunction ishape func_ut func_checker =
         a <- liftIO $ newEmptyTensor @e1 ishape KDLCPU 0
         c <- liftIO $ newEmptyTensor @e2 oshape KDLCPU 0
         forAllM arbitrary $ \x -> do
-          liftIO $ callTensorFunction c fmod [a]
+          liftIO $ callTVMFunction c fmod [a]
           c_ <- liftIO $ peekTensor c
           assertEpsilonEqual "Function result" epsilon [[6.0::Float]] c_
 -}
@@ -496,7 +496,7 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
             a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
             b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
             c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
-            callTensorFunction fmod [a,b,c]
+            callTVMFunction fmod [a,b,c]
             assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
   , testCase "Simple model should work, loadTVMModule/loadTVMFunction case" $
@@ -516,7 +516,7 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
           a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
           b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
           c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
-          callTensorFunction f [a,b,c]
+          callTVMFunction f [a,b,c]
           assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
   , testCase "Sigmoid primitive should work" $
@@ -534,7 +534,7 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
           in do
           a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
           c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [4] KDLCPU 0
-          callTensorFunction fmod [a,c]
+          callTVMFunction fmod [a,c]
           c_ <- peekTensor c
           assertEpsilonEqual "Simple model result" epsilon out c_
 
@@ -550,7 +550,7 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
         \func -> do
           a <- newTensor @[Float] [3.0] KDLCPU 0
           c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [1,1] KDLCPU 0
-          callTensorFunction func [a,c]
+          callTVMFunction func [a,c]
           c_ <- peekTensor c
           assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
 

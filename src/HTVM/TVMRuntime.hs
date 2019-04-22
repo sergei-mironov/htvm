@@ -73,15 +73,15 @@ loadModule ml@(ModuleLib module_filepath (LModule func_names _)) = do
 
 
 data Tensor = Tensor {
-  tensor_data :: forall a . (Show a, TVMData a) => a
+  tensor_data :: TVMTensor
   }
 
 -- | FIXME: Declare the way of handling errors
 callModule :: ModuleHandle -> Text -> [Tensor] -> IO ()
-callModule mh fname (ret:args) = undefined
-  -- tert <- fromTD
-  -- callTensorFunction 
-
+callModule mh fname args = do
+  case Map.lookup fname (mh_fhandles mh) of
+    Nothing -> fail $ "No such function: '" <> tunpack fname <> "'"
+    Just fh -> callTVMFunction fh (map tensor_data args)
 
 
 -- | Print the IR of the lowered function. In order to do it, compile and run IR

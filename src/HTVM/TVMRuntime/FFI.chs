@@ -420,9 +420,8 @@ withFunction funcname mod func =
 -- | Call function @fun@ returning @ret@ with @args@
 --
 -- TODO: Process pvretcode
--- FIXME: Allow arbitrary number of output tensors
-callTensorFunction :: TVMFunction -> [TVMTensor] -> IO ()
-callTensorFunction fun args =
+callTVMFunction :: TVMFunction -> [TVMTensor] -> IO ()
+callTVMFunction fun args =
   let
     nargs = length args
     clen = toCInt nargs
