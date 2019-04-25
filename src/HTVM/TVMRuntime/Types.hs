@@ -37,10 +37,15 @@ data ModuleGen a = ModuleGen {
 -- expression and backend information
 data Assembly a = Assembly {
     asm_src :: ModuleGenSrc a -- ^ Sources of ModuleGen which produced this assembly
+  , asm_backend :: BackendType
   , asm_source :: String -- ^ Assembly text
   } deriving(Show,Read,Eq,Ord)
 
 -- | Path to compiled TVM Module along with its source expression. Typically
 -- the module is contained in a shared library
-data ModuleLib a = ModuleLib FilePath a
+data ModuleLib a = ModuleLib {
+    mlib_filePath :: FilePath
+  , mlib_backend :: BackendType
+  , mlib_mod :: a
+  }
   deriving(Show,Read,Eq,Ord)

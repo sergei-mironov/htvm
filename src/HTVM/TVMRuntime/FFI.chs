@@ -132,15 +132,7 @@ instance TensorDataTypeRepr Double where tensorDataType = TD_Float64L1
 tensorDataTypeSize :: TensorDataType -> Integer
 tensorDataTypeSize = (`div`8) . tvmBits . toTvmDataType
 
--- | Flatten Tensor is a container which stores its elements in 1D-array
-data TensorData = TensorData {
-    td_shape :: [Integer]
-  , td_type :: TensorDataType
-  , td_data :: [Word8]
-  -- ^ FIXME: Replace with Array or ByteString
-  } deriving(Read,Show,Ord,Eq)
-
--- | Representation of `DLTensor` C structure
+-- | Representation of `DLTensor` C structure in Haskell
 data TVMTensor_Repr
 
 instance Storable TVMTensor_Repr where

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE TypeApplications #-}
@@ -7,6 +8,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Main where
 
 import Test.Tasty (TestTree, testGroup, defaultMain, withResource)
@@ -175,8 +177,9 @@ forAnyTensorLike t f = forAll (genAnyTensorLike t) $ \case
 class EpsilonEqual a where
   epsilonEqual :: Rational -> a -> a -> Bool
 
-instance EpsilonEqual Float where epsilonEqual eps a b = abs (a - b) < fromRational eps
-instance EpsilonEqual Double where epsilonEqual eps a b = abs (a - b) < fromRational eps
+instance EpsilonEqual Float where epsilonEqual eps a b = abs (toRational $ a - b) < eps
+instance EpsilonEqual Double where epsilonEqual eps a b = abs (toRational $ a - b) < eps
+instance EpsilonEqual Rational where epsilonEqual eps a b = abs (toRational $ a - b) < eps
 instance EpsilonEqual a => EpsilonEqual [a] where
   epsilonEqual eps a b =
     length a == length b && (all (uncurry (epsilonEqual eps)) (a`zip`b))
@@ -190,7 +193,7 @@ instance EpsilonEqual TensorData where
           KDLInt -> td_data a == td_data b
           KDLUInt -> td_data a == td_data b
           KDLFloat ->
-            all (uncurry $ epsilonEqual eps) (flattenReal a`zip`flattenReal b)
+            all (uncurry $ epsilonEqual eps) (toFlatArray a`zip`toFlatArray b)
 
 assertEpsilonEqual :: (EpsilonEqual a, HasCallStack)
   => String -> Rational -> a -> a -> Assertion
@@ -215,7 +218,7 @@ testLModelProperty backend_type desc mf gens =
         f <- mf
         lmodul [f]
   )
-  (\(ModuleLib nm _) -> do
+  (\(ModuleLib nm _ _) -> do
     ignoringIOErrors (removeFile nm)
   )
   (\act -> do
@@ -235,7 +238,7 @@ withTestLModule backend_type mf act =
 withSingleFuncLModule :: ModuleLib LModule -> (TVMFunction -> IO b) -> IO b
 withSingleFuncLModule modlib handler =
   case modlib of
-    (ModuleLib modpath (LModule [nm] _)) ->
+    (ModuleLib modpath _ (LModule [nm] _)) ->
       withModule modpath $ \hmod ->
       withFunction nm hmod $ \hfun ->
         handler hfun
@@ -245,7 +248,7 @@ withSingleFuncLModule modlib handler =
 singleFuncLModule :: ModuleLib LModule -> IO TVMFunction
 singleFuncLModule modlib =
   case modlib of
-    (ModuleLib modpath (LModule [nm] _)) -> do
+    (ModuleLib modpath _ (LModule [nm] _)) -> do
       m <- loadTVMModule modpath
       f <- loadTVMFunction nm m
       return f
@@ -263,8 +266,8 @@ lmodelProperty :: ModuleLib LModule -> Gen ([TensorData],TensorData) -> Property
 lmodelProperty modlib gen = do
   func <- run $ singleFuncLModule modlib
   forAllM gen $ \(args,expected) -> do
-    targs <- forM args $ \t -> run $ newTensor t KDLCPU 0
-    tact <- run $ newEmptyTensor (toTvmDataType $ tensorDataType @Float) (tvmIShape expected) KDLCPU 0
+    targs <- forM args $ \t -> run $ newTVMTensor t KDLCPU 0
+    tact <- run $ newEmptyTVMTensor (toTvmDataType $ tensorDataType @Float) (tvmIShape expected) KDLCPU 0
     -- run $ traceM "READY TO CALL"
     run $ callTVMFunction func (targs<>[tact])
     (actual :: TensorData) <- run $ peekTensor tact
@@ -278,8 +281,8 @@ testFunction ishape func_ut func_checker =
     \(ModuleLib p m) -> do
       withModule p $ \hmod -> do
       withFunction (funcName $ head $ modFuncs $ m) hmod $ \fmod -> do
-        a <- liftIO $ newEmptyTensor @e1 ishape KDLCPU 0
-        c <- liftIO $ newEmptyTensor @e2 oshape KDLCPU 0
+        a <- liftIO $ newEmptyTVMTensor @e1 ishape KDLCPU 0
+        c <- liftIO $ newEmptyTVMTensor @e2 oshape KDLCPU 0
         forAllM arbitrary $ \x -> do
           liftIO $ callTVMFunction c fmod [a]
           c_ <- liftIO $ peekTensor c
@@ -307,11 +310,22 @@ gen2 go = forAll (genList2 @e) $ monadicIO . run . go
 commonTests :: TestTree
 commonTests =
   testGroup "Common" [
-      testProperty "Uninitialized TensorDecl FFI should work" $
+
+      testProperty "fromTD . toTD' should be an identity v/r clipping" $
+        forAll genTensorDataType $ \t2 ->
+        forAll genTensorDataType $ \t ->
+          forAnyTensorLike t $ \d ->
+            let
+              d1 = (toFlatArray . toTD' t2) d
+              d2 = (map (clipTo t2) . toFlatArray) d
+            in
+            property $ epsilonEqual epsilon d1 d2
+
+    , testProperty "Uninitialized TensorDecl FFI should work" $
         let
           go :: forall e . TensorDataTypeRepr e => [Integer] -> IO ()
           go sh = do
-            a <- newEmptyTensor (toTvmDataType $ tensorDataType @e) sh KDLCPU 0
+            a <- newEmptyTVMTensor (toTvmDataType $ tensorDataType @e) sh KDLCPU 0
             assertEqual "poke-peek-2" (tvmTensorNDim a) (ilength sh)
             assertEqual "poke-peek-1" (tvmTensorShape a) sh
 
@@ -331,7 +345,7 @@ commonTests =
         forAll genTensorDataType $ \t ->
           forAnyTensorLike t $ \l ->
             monadicIO $ run $ do
-              a <- newTensor l KDLCPU 0
+              a <- newTVMTensor l KDLCPU 0
               assertEqual "poke-peek-1" (tvmTensorNDim a) (tvmDataNDim l)
               assertEqual "poke-peek-2" (tvmTensorShape a) (tvmDataShape l)
               l2 <- peekTensor a
@@ -343,7 +357,7 @@ commonTests =
         let
           go :: forall d i e . (TVMData d i e, Eq e, Show e, Eq d, Show d, Storable e) => d -> IO ()
           go l = do
-            a <- newTensor l KDLCPU 0
+            a <- newTVMTensor l KDLCPU 0
             f <- peekTensor @(FlattenTensor e) a
             assertEqual "Failed!" f (FlattenTensor l)
             return ()
@@ -366,8 +380,8 @@ commonTests =
         forAll genTensorDataType $ \t ->
           forAnyTensorLike t $ \l ->
             monadicIO $ run $ do
-              src <- newTensor l KDLCPU 0
-              dst <- newEmptyTensor (tvmTensorTvmDataType src) (tvmTensorShape src) KDLCPU 0
+              src <- newTVMTensor l KDLCPU 0
+              dst <- newEmptyTVMTensor (tvmTensorTvmDataType src) (tvmTensorShape src) KDLCPU 0
               tvmTensorCopy dst src
               l2 <- peekTensor dst
               assertEqual "copy-peek-1" l l2
@@ -377,19 +391,19 @@ commonTests =
         forAll genTensorDataType $ \t ->
           forAll (genAnyScalar t) $ \(AnyScalar l) ->
             property $
-              epsilonEqual epsilon [fromRational $ toRational l] (flattenReal l)
+              epsilonEqual epsilon [fromRational $ toRational l] (toFlatArray l)
 
     , testProperty "Flatten should is well-defined for 2D lists" $
         forAll genTensorDataType $ \t ->
           forAll (genAnyList2 t) $ \(AnyList2 l) ->
             property $
-              epsilonEqual epsilon (concatMap (map (fromRational . toRational)) l) (flattenReal l)
+              epsilonEqual epsilon (concatMap (map (fromRational . toRational)) l) (toFlatArray l)
 
     , testProperty "Flatten should is well-defined for 3D lists" $
         forAll genTensorDataType $ \t ->
           forAll (genAnyList3 t) $ \(AnyList3 l) ->
             property $
-              epsilonEqual epsilon (concatMap (concatMap (map (fromRational . toRational))) l) (flattenReal l)
+              epsilonEqual epsilon (concatMap (concatMap (map (fromRational . toRational))) l) (toFlatArray l)
     , testCase "Function printer should work" $
         do
         dump <-
@@ -490,12 +504,12 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
           lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
             compute s $ \e -> a![e] + b![e]
         ) $
-        \(ModuleLib p _) -> do
+        \(ModuleLib p _ _) -> do
           withModule p $ \hmod -> do
           withFunction fname hmod $ \fmod -> do
-            a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-            b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
-            c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
+            a <- newTVMTensor @[Float] [1,2,3,4] KDLCPU 0
+            b <- newTVMTensor @[Float] [10,20,30,40] KDLCPU 0
+            c <- newEmptyTVMTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
             callTVMFunction fmod [a,b,c]
             assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
@@ -510,12 +524,12 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
           lfunction fname [("A",float32,s),("B",float32,s)] $ \[a,b] -> do
             compute s $ \e -> a![e] + b![e]
         ) $
-        \(ModuleLib mod_path _) -> do
+        \(ModuleLib mod_path _ _) -> do
           m <- loadTVMModule mod_path
           f <- loadTVMFunction "vecadd" m
-          a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-          b <- newTensor @[Float] [10,20,30,40] KDLCPU 0
-          c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
+          a <- newTVMTensor @[Float] [1,2,3,4] KDLCPU 0
+          b <- newTVMTensor @[Float] [10,20,30,40] KDLCPU 0
+          c <- newEmptyTVMTensor (toTvmDataType $ tensorDataType @Float) [dim0] KDLCPU 0
           callTVMFunction f [a,b,c]
           assertEqual "Simple model result" [11,22,33,44::Float] =<< peekTensor c
 
@@ -532,8 +546,8 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
             inp = [1,2,3,4] :: [Float]
             out = map (\x -> 1.0 / (1.0 + exp (- x))) inp
           in do
-          a <- newTensor @[Float] [1,2,3,4] KDLCPU 0
-          c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [4] KDLCPU 0
+          a <- newTVMTensor @[Float] [1,2,3,4] KDLCPU 0
+          c <- newEmptyTVMTensor (toTvmDataType $ tensorDataType @Float) [4] KDLCPU 0
           callTVMFunction fmod [a,c]
           c_ <- peekTensor c
           assertEpsilonEqual "Simple model result" epsilon out c_
@@ -548,8 +562,8 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
           return (dc!0)
         ) $
         \func -> do
-          a <- newTensor @[Float] [3.0] KDLCPU 0
-          c <- newEmptyTensor (toTvmDataType $ tensorDataType @Float) [1,1] KDLCPU 0
+          a <- newTVMTensor @[Float] [3.0] KDLCPU 0
+          c <- newEmptyTVMTensor (toTvmDataType $ tensorDataType @Float) [1,1] KDLCPU 0
           callTVMFunction func [a,c]
           c_ <- peekTensor c
           assertEpsilonEqual "Differentiate result" epsilon [[6.0::Float]] c_
@@ -588,9 +602,9 @@ backendTests backend_type = testGroup ("Backend tests (" <> show backend_type <>
 
 main :: IO ()
 main = defaultMain $ do
-  testGroup "All" $ reverse [
+  testGroup "All" $ [
       commonTests
-    , backendTests BackendLLVM
+    -- , backendTests BackendLLVM
     -- , backendTests BackendCUDA
     ]
 

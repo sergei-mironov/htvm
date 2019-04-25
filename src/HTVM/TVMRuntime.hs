@@ -1,4 +1,11 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ExistentialQuantification #-}
 
 module HTVM.TVMRuntime (
     module HTVM.TVMRuntime.FFI
@@ -32,6 +39,7 @@ import HTVM.TVMRuntime.Build
 import HTVM.TVMRuntime.Types
 
 import qualified HTVM.TVMRuntime.FFI as TVM
+import qualified HTVM.TVMRuntime.TVMData as TVM
 import qualified HTVM.TVMRuntime.PrinterCPP as CPP
 import qualified Data.Map as Map
 
@@ -64,17 +72,36 @@ data ModuleHandle = ModuleHandle {
   }
 
 loadModule :: ModuleLib LModule -> IO ModuleHandle
-loadModule ml@(ModuleLib module_filepath (LModule func_names _)) = do
+loadModule ml@(ModuleLib module_filepath _ (LModule func_names _)) = do
   mh <- loadTVMModule module_filepath
   fhs <- Map.unions <$> do
     forM func_names $ \fn -> do
       Map.singleton fn <$> loadTVMFunction fn mh
   return $ ModuleHandle ml mh fhs
 
+moduleDeviceType :: ModuleHandle -> TVMDeviceType
+moduleDeviceType mh = case (mlib_backend $ mh_lib mh) of { BackendLLVM -> KDLCPU ; BackendCUDA -> KDLGPU ;}
+
+-- data TT1 e = TT1 {
+--   tt_data :: TVMTensor
+--   }
+
+data TT2 = forall e . (TensorDataTypeRepr e) => TT2 {
+  tt2_data :: TVMTensor
+  }
 
 data Tensor = Tensor {
   tensor_data :: TVMTensor
   }
+
+newEmptyTensor2 :: forall e . (TensorDataTypeRepr e) => ModuleHandle -> Integer -> [Integer] -> IO TT2
+newEmptyTensor2 mh dev_id shape = (TT2 @e) <$> newEmptyTVMTensor (toTvmDataType $ tensorDataType @e) shape (moduleDeviceType mh) (fromInteger dev_id)
+
+-- newTensor :: TVMData d => ModuleHandle -> Integer -> d -> IO Tensor
+-- newTensor mh dev_id d = Tensor <$> newTVMTensor d (moduleDeviceType mh) (fromInteger dev_id)
+
+newEmptyTensor :: ModuleHandle -> Integer -> TensorDataType -> [Integer] -> IO Tensor
+newEmptyTensor mh dev_id dt shape = Tensor <$> newEmptyTVMTensor (toTvmDataType dt) shape (moduleDeviceType mh) (fromInteger dev_id)
 
 -- | FIXME: Declare the way of handling errors
 callModule :: ModuleHandle -> Text -> [Tensor] -> IO ()

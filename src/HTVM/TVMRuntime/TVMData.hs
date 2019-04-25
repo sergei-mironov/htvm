@@ -43,6 +43,15 @@ instance TupleList (a,a) a where tuplist (a,b) = [a,b] ; tupdims = 2 ;
 instance TupleList (a,a,a) a where tuplist (a,b,c) = [a,b,c] ; tupdims = 3 ;
 instance TupleList (a,a,a,a) a where tuplist (a,b,c,d) = [a,b,c,d] ; tupdims = 4 ;
 
+-- | TensorData is a container which stores its data as array of bytes.
+data TensorData = TensorData {
+    td_shape :: [Integer]
+  , td_type :: TensorDataType
+  , td_data :: [Word8]
+  -- ^ FIXME: Replace with Array or ByteString
+  } deriving(Read,Show,Ord,Eq)
+
+
 -- | Class encodes data container interface, accepted by TVM model. In order to
 -- be convertible to TVM tensor, Haskell data container @d@ should be able to
 -- report its shape, type and raw data
@@ -50,29 +59,36 @@ instance TupleList (a,a,a,a) a where tuplist (a,b,c,d) = [a,b,c,d] ; tupdims = 4
 -- FIXME: rename tvmXXX -> tensorXXX
 -- FIXME: rename TensorDataLike
 class TVMData d where
+  -- | Convert information about element's type to TVM-friendly format,
+  -- compile-time version
   tvmStaticDataType :: Maybe TensorDataType
+  -- | Convert information about element's type to TVM-friendly format, runtime
+  -- version
   tvmDataType :: d -> TensorDataType
   tvmDataType = const $ fromJust (tvmStaticDataType @d)
-  -- ^ Transalte type information into TVM terms
+  -- | Number of dimentions in the Container, compile-time version
   tvmStaticNDims :: Maybe Integer
+  -- | Number of dimentions in the Container, runtime version
   tvmNDims :: d -> Integer
   tvmNDims = const $ fromJust (tvmStaticNDims @d)
-  -- ^ Number of dimentions in the Container
+  -- | Get the shape of tensor, compile-time version
   tvmStaticIShape :: Maybe [Integer]
+  -- | Get the shape of tensor, runtime version
   tvmIShape :: d -> [Integer]
   tvmIShape = const $ fromJust (tvmStaticIShape @d)
-  -- ^ Get the shape of data, in form of list of inegers
-  tvmPeek :: TensorDataType -> [Integer] -> Ptr Word8 -> IO d
-  -- ^ Take the type, the shape and the pointer to dense memory area of size
+  -- | Take the type, the shape and the pointer to dense memory area of size
   -- `dataArraySize`, produce the data container.
-  tvmPoke :: d -> Ptr Word8 -> IO ()
-  -- ^ Write the data @d@ to dense memory area of size `dataArraySize`.
+  tvmPeek :: TensorDataType -> [Integer] -> Ptr Word8 -> IO d
+  -- | Write the data @d@ to dense memory area of size `dataArraySize`.
   -- TODO: figure out the alignment restirctions.
+  tvmPoke :: d -> Ptr Word8 -> IO ()
+  -- | Convert to uniform TensorData
   fromTD :: TensorData -> d
   fromTD TensorData{..} = unsafePerformIO $ do
     withArray td_data $ \parr -> do
       tvmPeek td_type td_shape parr
 
+  -- | Convert from uniform TensorData
   toTD :: d -> TensorData
   toTD d = unsafePerformIO $
     let
@@ -157,21 +173,49 @@ tvmDataShape = tvmIShape
 tvmDataNDim :: (TVMData d) => d -> Integer
 tvmDataNDim = ilength . tvmDataShape
 
--- | Flattens any `TensorLike d` into list of doubles.
-flattenReal :: (TVMData d) => d -> [Double]
-flattenReal d =
+-- | Converts any `TVMData` into the type of highest available precision
+toFlatArray :: (TVMData d) => d -> [Rational]
+toFlatArray d =
   let
     td = toTD d
     sh1 = [foldr1 (*) (if null $ td_shape td then [1] else td_shape td)]
   in
   case td_type td of
-    TD_UInt8L1 -> map (fromRational . toRational) $ fromTD @[Word8] td{td_shape=sh1}
-    TD_SInt32L1 -> map (fromRational . toRational) $ fromTD @[Int32] td{td_shape=sh1}
-    TD_UInt32L1 -> map (fromRational . toRational) $ fromTD @[Word32] td{td_shape=sh1}
-    TD_Float32L1 -> map (fromRational . toRational) $ fromTD @[Float] td{td_shape=sh1}
-    TD_SInt64L1 -> map (fromRational . toRational) $ fromTD @[Int64] td{td_shape=sh1}
-    TD_UInt64L1 -> map (fromRational . toRational) $ fromTD @[Word64] td{td_shape=sh1}
-    TD_Float64L1 -> fromTD @[Double] td{td_shape=sh1}
+    TD_UInt8L1   -> map toRational $ fromTD @[Word8]  td{td_shape=sh1}
+    TD_SInt32L1  -> map toRational $ fromTD @[Int32]  td{td_shape=sh1}
+    TD_UInt32L1  -> map toRational $ fromTD @[Word32] td{td_shape=sh1}
+    TD_SInt64L1  -> map toRational $ fromTD @[Int64]  td{td_shape=sh1}
+    TD_UInt64L1  -> map toRational $ fromTD @[Word64] td{td_shape=sh1}
+    TD_Float32L1 -> map toRational $ fromTD @[Float]  td{td_shape=sh1}
+    TD_Float64L1 -> map toRational $ fromTD @[Double] td{td_shape=sh1}
+
+clipTo :: TensorDataType -> Rational -> Rational
+clipTo tdt r =
+  case tdt of
+    TD_UInt8L1   -> toRational @Word8 $ round r
+    TD_SInt32L1  -> toRational @Int32 $ round r
+    TD_UInt32L1  -> toRational @Word32 $ round r
+    TD_SInt64L1  -> toRational @Int64 $ round r
+    TD_UInt64L1  -> toRational @Word64 $ round r
+    TD_Float32L1 -> toRational @Float $ fromRational r
+    TD_Float64L1 -> toRational @Double $ fromRational r
+
+toTD' :: (TVMData d) => TensorDataType -> d -> TensorData
+toTD' tdt d =
+  let
+    flat = toFlatArray d
+    sh = tvmIShape d
+  in
+  (\td -> td{td_shape = sh}) $
+  case tdt of
+    TD_UInt8L1   -> toTD @[Word8] $ map round flat
+    TD_SInt32L1  -> toTD @[Int32] $ map round flat
+    TD_UInt32L1  -> toTD @[Word32] $ map round flat
+    TD_SInt64L1  -> toTD @[Int64] $ map round flat
+    TD_UInt64L1  -> toTD @[Word64] $ map round flat
+    TD_Float32L1 -> toTD @[Float] $ map fromRational flat
+    TD_Float64L1 -> toTD @[Double] $ map fromRational flat
+
 
 instance TVMData TensorData where
   tvmStaticDataType = Nothing
@@ -193,13 +237,13 @@ instance TVMData TensorData where
 -- runtime which would call free when it decides to do so.
 --
 -- FIXME: non-CPU devices will not work, see FIXME in `pokeTensor`
-newEmptyTensor
+newEmptyTVMTensor
   :: TVMDataType                 -- ^ TensorType
   -> [Integer]                   -- ^ Shape
   -> TVMDeviceType               -- ^ Device type (CPU|GPU|etc)
   -> TVMDeviceId                 -- ^ Device ID
   -> IO TVMTensor
-newEmptyTensor typ shape dt did =
+newEmptyTVMTensor typ shape dt did =
   let
     ndim = length shape
     (TVMDataType code bits lanes) = typ
@@ -221,13 +265,13 @@ newEmptyTensor typ shape dt did =
       err -> throwIO (TVMAllocFailed (fromCInt err))
 
 -- | Allocate new Tensor object
-newTensor :: forall d . (TVMData d)
+newTVMTensor :: forall d . (TVMData d)
   => d                           -- ^ TvmData tensor-like object
   -> TVMDeviceType               -- ^ Device type
   -> TVMDeviceId                 -- ^ Device ID
   -> IO TVMTensor
-newTensor d dt did = do
-  ft <- newEmptyTensor (toTvmDataType $ tvmDataType d) (map fromInteger $ tvmDataShape d) dt did
+newTVMTensor d dt did = do
+  ft <- newEmptyTVMTensor (toTvmDataType $ tvmDataType d) (map fromInteger $ tvmDataShape d) dt did
   withForeignPtr ft $ \pt -> do
     tvmPoke d (unsafeTvmTensorData ft)
   return ft

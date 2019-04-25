@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NondecreasingIndentation #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main where
 
@@ -26,14 +27,14 @@ demo1 = do
 
   a <- assign $ placeholder "A" float32 sa
   c <- compute sa $ \i -> (a![i])*(a![i])
-  f1 <- lower "a" (schedule [c]) [a,c]
+  f1 <- lower "asquare" (schedule [c]) [a,c]
 
-  liftIO $ putStrLn "c" >> printFunction f1
+  liftIO $ putStrLn "asquare" >> printFunction f1
 
   dc <- assign $ (differentiate c [a]) ! 0
-  f2 <- lower "da" (schedule [dc]) [a,dc]
+  f2 <- lower "d_asquare" (schedule [dc]) [a,dc]
 
-  liftIO $ putStrLn "dc" >> printFunction f2
+  liftIO $ putStrLn "d_asquare" >> printFunction f2
 
   lmodul [f1,f2]
 
@@ -82,5 +83,15 @@ conv2d = do
 
 main :: IO ()
 main = do
+  smod <- stageStmtT demo1
+  bmod <- buildLModule defaultBackend defaultConfig "demo" smod
+  hmod <- loadModule bmod
+
+  a <- newTensor hmod 0 DT_Float32 [1.0*x  :: Float | x<-[1..5]]
+  -- b <- newTensor hmod 0 [10.0*x :: Float | x<-[1..5]]
+  c <- newEmptyTensor hmod 0 DT_Float32 (tensorDataType @Float) [5]
+
+  callModule hmod "asquare" [a,c]
+
   return ()
 

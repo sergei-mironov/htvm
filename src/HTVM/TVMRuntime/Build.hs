@@ -78,7 +78,7 @@ compileModuleGen cc fp mgs@(ModuleGenSrc mod backend_type code) = do
 -- | Execute the Module generator, return the Assembly string, suitable for
 -- `compileModule`
 runModuleGen :: ModuleGen a -> IO (Assembly a)
-runModuleGen (ModuleGen fp _ mgs) =
+runModuleGen (ModuleGen fp backend mgs) =
   let
     exec_fp = if isAbsolute fp then fp else "./" <> fp
   in do
@@ -93,12 +93,12 @@ runModuleGen (ModuleGen fp _ mgs) =
            <> tpack err
            <> "ModuleGen exit code: " <> tshow ec
     ExitSuccess -> do
-      return (Assembly mgs out)
+      return (Assembly mgs backend out)
 
 -- | Produce the model library from the Assembly, see `runModuleGen`.
 -- Binary will be placed to output file @fp@
 compileModule :: FilePath -> Assembly a -> IO (ModuleLib a)
-compileModule fp asm@(Assembly mgs asm_source) = do
+compileModule fp asm@(Assembly mgs backend asm_source) = do
   (ec,out,err) <-
     readProcessWithExitCode
       "g++" ["-std=c++14", "-x", "assembler", "-shared", "-fPIC", "-o", fp, "-"]
@@ -109,5 +109,5 @@ compileModule fp asm@(Assembly mgs asm_source) = do
     ExitFailure ec -> do
       error $ "compileModule: g++ failed, exit code " <> show ec
     ExitSuccess -> do
-      return (ModuleLib fp (mgs_ast mgs))
+      return (ModuleLib fp backend (mgs_ast mgs))
 
