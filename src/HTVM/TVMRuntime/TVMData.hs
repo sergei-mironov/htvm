@@ -189,6 +189,7 @@ toFlatArray d =
     TD_Float32L1 -> map toRational $ fromTD @[Float]  td{td_shape=sh1}
     TD_Float64L1 -> map toRational $ fromTD @[Double] td{td_shape=sh1}
 
+-- FIXME: Replace round to ceil or floor
 clipTo :: TensorDataType -> Rational -> Rational
 clipTo tdt r =
   case tdt of
@@ -200,21 +201,25 @@ clipTo tdt r =
     TD_Float32L1 -> toRational @Float $ fromRational r
     TD_Float64L1 -> toRational @Double $ fromRational r
 
+-- FIXME: Replace round to ceil or floor
 toTD' :: (TVMData d) => TensorDataType -> d -> TensorData
 toTD' tdt d =
-  let
-    flat = toFlatArray d
-    sh = tvmIShape d
-  in
-  (\td -> td{td_shape = sh}) $
-  case tdt of
-    TD_UInt8L1   -> toTD @[Word8] $ map round flat
-    TD_SInt32L1  -> toTD @[Int32] $ map round flat
-    TD_UInt32L1  -> toTD @[Word32] $ map round flat
-    TD_SInt64L1  -> toTD @[Int64] $ map round flat
-    TD_UInt64L1  -> toTD @[Word64] $ map round flat
-    TD_Float32L1 -> toTD @[Float] $ map fromRational flat
-    TD_Float64L1 -> toTD @[Double] $ map fromRational flat
+  case tdt == tvmDataType d of
+    True -> toTD d
+    False ->
+      let
+        flat = toFlatArray d
+        sh = tvmIShape d
+      in
+      (\td -> td{td_shape = sh}) $
+      case tdt of
+        TD_UInt8L1   -> toTD @[Word8] $ map round flat
+        TD_SInt32L1  -> toTD @[Int32] $ map round flat
+        TD_UInt32L1  -> toTD @[Word32] $ map round flat
+        TD_SInt64L1  -> toTD @[Int64] $ map round flat
+        TD_UInt64L1  -> toTD @[Word64] $ map round flat
+        TD_Float32L1 -> toTD @[Float] $ map fromRational flat
+        TD_Float64L1 -> toTD @[Double] $ map fromRational flat
 
 
 instance TVMData TensorData where
@@ -280,7 +285,7 @@ newTVMTensor d dt did = do
 peekTensor :: forall d . (TVMData d)
   => TVMTensor -> IO d
 peekTensor ft = do
-  typ <- tvmTensorDataType ft
+  typ <- tvmTensorDataType_ ft
   case tvmTensorDevice ft of
     KDLCPU -> do
       tvmPeek typ (tvmTensorShape ft) (unsafeTvmTensorData ft)
@@ -295,7 +300,7 @@ peekTensor ft = do
 pokeTensor :: forall d . (TVMData d)
   => TVMTensor -> d -> IO ()
 pokeTensor ft d = do
-  typ <- tvmTensorDataType ft
+  typ <- tvmTensorDataType_ ft
   when (tvmTensorShape ft /= tvmDataShape d) $
     throwIO (ShapeMismatch (tvmTensorShape ft) (tvmDataShape d))
   when (typ /= tvmDataType d) $

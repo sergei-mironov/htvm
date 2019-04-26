@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module HTVM.TVMRuntime (
     module HTVM.TVMRuntime.FFI
@@ -82,26 +83,32 @@ loadModule ml@(ModuleLib module_filepath _ (LModule func_names _)) = do
 moduleDeviceType :: ModuleHandle -> TVMDeviceType
 moduleDeviceType mh = case (mlib_backend $ mh_lib mh) of { BackendLLVM -> KDLCPU ; BackendCUDA -> KDLGPU ;}
 
--- data TT1 e = TT1 {
---   tt_data :: TVMTensor
---   }
+backendToDeviceType :: BackendType -> TVMDeviceType
+backendToDeviceType = \case { BackendLLVM -> KDLCPU ; BackendCUDA -> KDLGPU ;}
 
-data TT2 = forall e . (TensorDataTypeRepr e) => TT2 {
-  tt2_data :: TVMTensor
-  }
 
 data Tensor = Tensor {
-  tensor_data :: TVMTensor
+    tensor_data :: TVMTensor
   }
 
-newEmptyTensor2 :: forall e . (TensorDataTypeRepr e) => ModuleHandle -> Integer -> [Integer] -> IO TT2
-newEmptyTensor2 mh dev_id shape = (TT2 @e) <$> newEmptyTVMTensor (toTvmDataType $ tensorDataType @e) shape (moduleDeviceType mh) (fromInteger dev_id)
+newtype DeviceId = DeviceId {
+    devid_num :: Int
+  }
+  deriving(Read,Show,Eq,Ord,Num)
 
--- newTensor :: TVMData d => ModuleHandle -> Integer -> d -> IO Tensor
--- newTensor mh dev_id d = Tensor <$> newTVMTensor d (moduleDeviceType mh) (fromInteger dev_id)
 
-newEmptyTensor :: ModuleHandle -> Integer -> TensorDataType -> [Integer] -> IO Tensor
-newEmptyTensor mh dev_id dt shape = Tensor <$> newEmptyTVMTensor (toTvmDataType dt) shape (moduleDeviceType mh) (fromInteger dev_id)
+newEmptyTensor :: BackendType -> DeviceId -> TensorDataType -> [Integer] -> IO Tensor
+newEmptyTensor b devid t shape =
+  Tensor <$> newEmptyTVMTensor (toTvmDataType t) shape (backendToDeviceType b) (devid_num devid)
+
+newTensor :: (TVMData d) => BackendType -> DeviceId -> TensorDataType -> d -> IO Tensor
+newTensor b devid t d =
+  Tensor <$> newTVMTensor (toTD' t d) (backendToDeviceType b) (devid_num devid)
+
+
+getTensor :: (TVMData d) => Tensor -> IO d
+getTensor d = fromTD <$> peekTensor (tensor_data d)
+
 
 -- | FIXME: Declare the way of handling errors
 callModule :: ModuleHandle -> Text -> [Tensor] -> IO ()

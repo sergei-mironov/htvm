@@ -82,7 +82,8 @@ instance Storable TVMContext where
 data TVMDataType = TVMDataType { tvmCode :: TVMDataTypeCode, tvmBits :: Integer, tvmLanes :: Integer }
   deriving(Eq,Ord,Show,Read)
 
--- | TVM Data types which are supported by HTVM
+-- | Types of tensor contents which are supported by this framework. Note that
+-- TVM may support a wider range of types.
 data TensorDataType =
     TD_UInt8L1
   | TD_SInt32L1
@@ -93,7 +94,7 @@ data TensorDataType =
   | TD_Float64L1
   deriving(Read,Show,Eq,Ord,Bounded,Enum)
 
--- | Convertions from TVM type to HTVM type
+-- | Convertions from TVM type to this framework's representation
 fromTvmDataType :: TVMDataType -> Maybe TensorDataType
 fromTvmDataType = \case
   (TVMDataType KDLUInt   8 1) -> Just TD_UInt8L1
@@ -280,6 +281,7 @@ tvmTensorDevice ft = unsafePerformIO $ do
   withForeignPtr ft $ \pt -> do
     (toEnum . fromCInt) <$> {# get DLTensor->ctx.device_type #} pt
 
+-- | Return number of dimentions of TVM tensor
 tvmTensorNDim :: TVMTensor -> Integer
 tvmTensorNDim ft = unsafePerformIO $ do
   withForeignPtr ft $ \pt -> do
@@ -296,12 +298,17 @@ tvmTensorTvmDataType ft = unsafePerformIO $ do
 tvmDataTypeCode :: TVMTensor -> TVMDataTypeCode
 tvmDataTypeCode = tvmCode . tvmTensorTvmDataType
 
-tvmTensorDataType :: TVMTensor -> IO TensorDataType
-tvmTensorDataType ft = do
+tvmTensorDataType_ :: TVMTensor -> IO TensorDataType
+tvmTensorDataType_ ft = do
   dt <- pure $ tvmTensorTvmDataType ft
   case fromTvmDataType dt of
     Nothing -> throwIO $ UnsupportedTVMDataType dt
     Just tdt -> return tdt
+
+-- | Returns the type of a tensor. Note that it is not safe to call this
+-- function for tensors created outside of this framework.
+tvmTensorDataType :: TVMTensor -> TensorDataType
+tvmTensorDataType = unsafePerformIO . tvmTensorDataType_
 
 {-
 tensorNDimM :: TVMTensor -> IO Integer

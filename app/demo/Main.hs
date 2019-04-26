@@ -23,7 +23,7 @@ printFunction f =
 
 demo1 :: StmtT IO LModule
 demo1 = do
-  sa <- shapevar [1]
+  sa <- shapevar [5]
 
   a <- assign $ placeholder "A" float32 sa
   c <- compute sa $ \i -> (a![i])*(a![i])
@@ -87,11 +87,11 @@ main = do
   bmod <- buildLModule defaultBackend defaultConfig "demo" smod
   hmod <- loadModule bmod
 
-  a <- newTensor hmod 0 DT_Float32 [1.0*x  :: Float | x<-[1..5]]
-  -- b <- newTensor hmod 0 [10.0*x :: Float | x<-[1..5]]
-  c <- newEmptyTensor hmod 0 DT_Float32 (tensorDataType @Float) [5]
+  a <- newTensor BackendLLVM 0 TD_Float32L1 [1..5 :: Word32]
+  c <- newEmptyTensor BackendLLVM 0 TD_Float32L1 [5]
 
   callModule hmod "asquare" [a,c]
 
+  putStrLn . show =<< getTensor @[Float] c
   return ()
 
